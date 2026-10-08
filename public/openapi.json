@@ -5,14 +5,16 @@
     "version": "1.0.0",
     "description": "Pay-per-use PDF and document extraction API for AI agents. Extract clean text from any PDF or DOCX at $0.005 USDC per call. No API key, no subscription, no account needed.",
     "contact": {
-      "url": "https://extractpdf.xyz"
+      "url": "https://www.extractpdf.xyz",
+      "email": "artespraticas@gmail.com"
     },
+    "x-guidance": "Call POST /api/extract with JSON body {\"url\": \"<public PDF or DOCX URL>\"}. Pay $0.005 USDC via x402 (attach signed payment to X-PAYMENT header or PAYMENT-REQUIRED). Returns: text (string, up to 50k chars), pages (int, PDF only), chars (int), title (string), author (string), format (pdf|docx|text), extracted_at (ISO datetime). Use this when you need to read a PDF or Word document from a URL. Supported chains: Base, Arc, Polygon.",
     "x-logo": {
       "url": "https://extractpdf.xyz/logo.png"
     }
   },
   "servers": [
-    { "url": "https://extractpdf.xyz", "description": "Production" }
+    { "url": "https://www.extractpdf.xyz", "description": "Production" }
   ],
   "x-payment-info": {
     "protocols": ["x402", "mpp"],

@@ -1,79 +1,40 @@
-import { facilitator } from "@coinbase/x402";
+import express from "express";
+import { createGatewayMiddleware } from "@circle-fin/x402-batching/server";
 
-const WALLET = process.env.WALLET_ADDRESS;
+const app = express();
+app.use(express.json());
 
-// $0.005 USDC = 5000 raw units (6 decimals)
-const AMOUNT = "5000";
+// CORS
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-PAYMENT, PAYMENT-REQUIRED, Accept");
+  if (req.method === "OPTIONS") return res.status(204).end();
+  next();
+});
 
-const inputSchema = {
-  type: "object",
-  required: ["url"],
-  properties: {
-    url: {
-      type: "string",
-      format: "uri",
-      description: "Public URL of a PDF or DOCX document to extract text from"
-    },
-    pages: {
-      type: "string",
-      description: "Optional page range e.g. '1-5' or 'all' (default: all)"
-    }
-  }
-};
+// Health check (no payment required)
+app.get("*", (req, res, next) => {
+  if (req.headers["x-payment"] || req.headers["payment-required"]) return next();
+  return res.status(200).json({
+    service: "ExtractPDF",
+    description: "Pay-per-use PDF and document extraction for AI agents",
+    price: "$0.005 USDC per extraction",
+    endpoint: "POST /api/extract",
+    accepts_formats: ["pdf", "docx", "txt"],
+    docs: "https://www.extractpdf.xyz",
+    openapi: "https://www.extractpdf.xyz/openapi.json"
+  });
+});
 
-const outputSchema = {
-  type: "object",
-  required: ["url", "text", "pages", "chars", "extracted_at"],
-  properties: {
-    url: { type: "string" },
-    text: { type: "string", description: "Extracted plain text" },
-    pages: { type: "number", description: "Total pages (PDF only)" },
-    chars: { type: "number" },
-    title: { type: "string" },
-    author: { type: "string" },
-    format: { type: "string", enum: ["pdf", "docx", "text"] },
-    extracted_at: { type: "string", format: "date-time" }
-  }
-};
+// Circle Gateway middleware — auto-discovers supported networks
+const gateway = createGatewayMiddleware({
+  sellerAddress: process.env.WALLET_ADDRESS,
+  facilitatorUrl: "https://gateway-api.circle.com",
+});
 
-const accepts = [
-  {
-    scheme: "exact",
-    network: "eip155:8453",
-    amount: AMOUNT,
-    maxAmountRequired: AMOUNT,
-    asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-    payTo: WALLET,
-    maxTimeoutSeconds: 300,
-    extra: { name: "USDC", version: "2" },
-    outputSchema: { input: inputSchema, output: outputSchema }
-  },
-  {
-    scheme: "exact",
-    network: "eip155:5042",
-    amount: AMOUNT,
-    maxAmountRequired: AMOUNT,
-    asset: "0x3600000000000000000000000000000000000000",
-    payTo: WALLET,
-    maxTimeoutSeconds: 300,
-    extra: { name: "USDC", version: "2" },
-    outputSchema: { input: inputSchema, output: outputSchema }
-  },
-  {
-    scheme: "exact",
-    network: "eip155:137",
-    amount: AMOUNT,
-    maxAmountRequired: AMOUNT,
-    asset: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
-    payTo: WALLET,
-    maxTimeoutSeconds: 300,
-    extra: { name: "USDC", version: "2" },
-    outputSchema: { input: inputSchema, output: outputSchema }
-  }
-];
-
+// PDF extraction helpers
 async function extractPdf(buffer) {
-  // dynamic import to avoid ESM issues with pdf-parse
   const pdfParse = (await import("pdf-parse/lib/pdf-parse.js")).default;
   const data = await pdfParse(buffer);
   return {
@@ -90,99 +51,17 @@ async function extractDocx(buffer) {
   const mammoth = (await import("mammoth")).default;
   const result = await mammoth.extractRawText({ buffer });
   const text = result.value.trim().slice(0, 50000);
-  return {
-    text,
-    pages: null,
-    chars: text.length,
-    title: "",
-    author: "",
-    format: "docx"
-  };
+  return { text, pages: null, chars: text.length, title: "", author: "", format: "docx" };
 }
 
 async function extractText(buffer) {
   const text = buffer.toString("utf-8").trim().slice(0, 50000);
-  return {
-    text,
-    pages: null,
-    chars: text.length,
-    title: "",
-    author: "",
-    format: "text"
-  };
+  return { text, pages: null, chars: text.length, title: "", author: "", format: "text" };
 }
 
-export default async function handler(req, res) {
-  // CORS
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-PAYMENT, Accept");
-
-  if (req.method === "OPTIONS") {
-    return res.status(204).end();
-  }
-
-  // Health check
-  if (req.method === "GET" && !req.headers["x-payment"]) {
-    return res.status(200).json({
-      service: "ExtractPDF",
-      description: "Pay-per-use PDF and document extraction for AI agents",
-      price: "$0.005 USDC per extraction",
-      endpoint: "POST /api/extract",
-      accepts_formats: ["pdf", "docx", "txt"],
-      chains: ["Base (eip155:8453)", "Arc (eip155:5042)", "Polygon (eip155:137)"],
-      docs: "https://extractpdf.xyz"
-    });
-  }
-
-  const host = req.headers.host || "extractpdf.xyz";
-  const resourceUrl = `https://${host}/api/extract`;
-
-  // Payment gate
-  const paymentHeader = req.headers["x-payment"];
-  if (!paymentHeader) {
-    res.setHeader(
-      "WWW-Authenticate",
-      `MPP realm="${resourceUrl}", price="0.005", currency="USD"`
-    );
-    return res.status(402).json({
-      x402Version: 1,
-      error: "Payment required",
-      resource: {
-        url: resourceUrl,
-        description: "PDF and document text extraction — $0.005 per request",
-        mimeType: "application/json"
-      },
-      accepts
-    });
-  }
-
-  // Verify payment
-  try {
-    const payment = JSON.parse(paymentHeader);
-    const verifyResult = await facilitator.verify(payment, { accepts });
-    if (!verifyResult.valid) {
-      return res.status(402).json({
-        x402Version: 1,
-        error: "Invalid payment: " + verifyResult.invalidReason,
-        resource: { url: resourceUrl, description: "PDF and document text extraction" },
-        accepts
-      });
-    }
-    await facilitator.settle(payment, { accepts });
-  } catch (e) {
-    console.error("Payment error:", e.message);
-    return res.status(402).json({
-      x402Version: 1,
-      error: "Payment processing failed: " + e.message,
-      resource: { url: resourceUrl, description: "PDF and document text extraction" },
-      accepts
-    });
-  }
-
-  // Extract document
-  const body = req.method === "POST" ? req.body : null;
-  const url = (body && body.url) || req.query.url;
+// Protected extraction endpoint — $0.005 USDC per call
+app.post("*", gateway.require("$0.005"), async (req, res) => {
+  const url = req.body?.url || req.query.url;
 
   if (!url) {
     return res.status(400).json({ error: "Missing required field: url" });
@@ -190,7 +69,7 @@ export default async function handler(req, res) {
 
   try {
     const response = await fetch(url, {
-      headers: { "User-Agent": "ExtractPDF/1.0 (+https://extractpdf.xyz)" },
+      headers: { "User-Agent": "ExtractPDF/1.0 (+https://www.extractpdf.xyz)" },
       signal: AbortSignal.timeout(15000)
     });
 
@@ -207,13 +86,9 @@ export default async function handler(req, res) {
     let extracted;
     if (contentType.includes("pdf") || url.toLowerCase().endsWith(".pdf")) {
       extracted = await extractPdf(buffer);
-    } else if (
-      contentType.includes("wordprocessingml") ||
-      url.toLowerCase().endsWith(".docx")
-    ) {
+    } else if (contentType.includes("wordprocessingml") || url.toLowerCase().endsWith(".docx")) {
       extracted = await extractDocx(buffer);
     } else {
-      // fallback: plain text
       extracted = await extractText(buffer);
     }
 
@@ -225,4 +100,6 @@ export default async function handler(req, res) {
   } catch (err) {
     return res.status(500).json({ error: "Extraction failed", detail: err.message });
   }
-}
+});
+
+export default app;

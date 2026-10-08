@@ -1,7 +1,8 @@
 {
   "functions": {
     "api/extract.js": {
-      "maxDuration": 30
+      "maxDuration": 30,
+      "runtime": "nodejs22.x"
     }
   },
   "headers": [
