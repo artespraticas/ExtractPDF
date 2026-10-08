@@ -1,0 +1,11 @@
+{
+  "endpoints": [
+    {
+      "path": "/api/extract",
+      "method": "POST",
+      "price": "0.005",
+      "currency": "USD",
+      "networks": ["eip155:8453", "eip155:5042", "eip155:137"]
+    }
+  ]
+}

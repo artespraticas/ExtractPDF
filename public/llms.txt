@@ -1,0 +1,53 @@
+# ExtractPDF
+
+> Pay-per-use PDF and document text extraction for AI agents.
+> $0.005 USDC per extraction. No API key. No account. No subscription.
+> Accepts payment on Base, Arc, and Polygon via x402.
+
+## What it does
+
+POST a public URL of any PDF or DOCX document and receive:
+- Clean extracted plain text (up to 50,000 characters)
+- Page count, title, author metadata
+- Format detection (pdf / docx / text)
+
+## Endpoint
+
+POST https://extractpdf.xyz/api/extract
+Content-Type: application/json
+X-PAYMENT: <x402 payment header>
+
+Body: { "url": "https://example.com/document.pdf" }
+
+## Payment
+
+Price: $0.005 USDC per call
+Networks: Base (eip155:8453), Arc (eip155:5042), Polygon (eip155:137)
+Protocol: x402 v1 — send X-PAYMENT header with signed USDC authorization
+
+Without a payment header, the endpoint returns HTTP 402 with the full payment requirements.
+
+## Response example
+
+{
+  "url": "https://example.com/report.pdf",
+  "text": "Executive Summary\n\nThis report covers...",
+  "pages": 12,
+  "chars": 8432,
+  "title": "Annual Report 2024",
+  "author": "Jane Smith",
+  "format": "pdf",
+  "extracted_at": "2026-10-08T14:00:00.000Z"
+}
+
+## Supported formats
+
+- PDF (.pdf) — full text and metadata extraction
+- DOCX (.docx) — full text extraction
+- Plain text — returned as-is
+
+## Links
+
+- Homepage: https://extractpdf.xyz
+- OpenAPI spec: https://extractpdf.xyz/openapi.json
+- Health check: GET https://extractpdf.xyz/api/extract
