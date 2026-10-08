@@ -1,0 +1,1 @@
+# ExtractPDF\nPay-per-use PDF extraction for AI agents. $0.005 USDC via x402.\n\n- POST /api/extract — extract text from any PDF or DOCX URL\n- Chains: Base, Arc, Polygon\n- Circle Gateway Nanopayments\n
