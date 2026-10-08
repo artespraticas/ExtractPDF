@@ -1,243 +1,132 @@
-// ExtractPDF — pay-per-use PDF/DOCX extraction for AI agents
-// Payment: $0.005 USDC via x402, Circle Gateway settlement
-// Chains: Base (eip155:8453), Arc (eip155:5042), Polygon (eip155:137)
-
-import { recoverTypedDataAddress } from "viem";
+import { createX402Server } from "@coinbase/cdp-sdk/x402";
+import { paymentMiddlewareFromHTTPServer } from "@x402/express";
+import express from "express";
+import pdfParse from "pdf-parse/lib/pdf-parse.js";
+import mammoth from "mammoth";
 
 const WALLET = process.env.WALLET_ADDRESS;
-const AMOUNT = "5000"; // $0.005 USDC (6 decimals)
+if (!WALLET) throw new Error("WALLET_ADDRESS env var is required");
 
-// Chain registry — USDC addresses and Gateway verifying contracts per chain
-const CHAINS = {
-  "eip155:8453": {
-    asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-    name: "USD Coin",
-    version: "2",
-    chainId: 8453,
-  },
-  "eip155:5042": {
-    asset: "0x3600000000000000000000000000000000000000",
-    name: "USD Coin",
-    version: "2",
-    chainId: 5042,
-  },
-  "eip155:137": {
-    asset: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359",
-    name: "USD Coin",
-    version: "2",
-    chainId: 137,
-  },
-};
+// Lazy-init the x402 server (Vercel serverless: init once per cold start)
+let x402Server = null;
+let middleware = null;
 
-const accepts = Object.entries(CHAINS).map(([network, c]) => ({
-  scheme: "exact",
-  network,
-  amount: AMOUNT,
-  maxAmountRequired: AMOUNT,
-  asset: c.asset,
-  payTo: WALLET,
-  maxTimeoutSeconds: 300,
-  extra: { name: c.name, version: c.version, assetTransferMethod: "eip3009" },
-}));
-
-// Verify EIP-3009 TransferWithAuthorization signature
-// Handles both x402 v1 flat format and x402 v2 nested format
-async function verifyPayment(paymentHeader) {
-  let p;
-  try {
-    p = JSON.parse(Buffer.from(paymentHeader, "base64").toString("utf8"));
-  } catch {
-    return { valid: false, reason: "Invalid base64 payment header" };
-  }
-
-  // x402 v2: { x402Version:2, resource, accepted:{network,...}, payload:{signature, authorization} }
-  // x402 v1: { scheme, network, payload:{signature, authorization} }
-  const network = p.network || p.accepted?.network;
-  const payloadObj = p.payload;
-
-  const chain = CHAINS[network];
-  if (!chain) return { valid: false, reason: `Unsupported network: ${network}` };
-
-  // Rebuild p in v1 shape for the rest of the function
-  if (!p.network && p.accepted) {
-    p = { ...p.accepted, payload: payloadObj, network };
-  }
-
-  const auth = p.payload?.authorization;
-  if (!auth) return { valid: false, reason: "Missing authorization" };
-
-  // Verify amount
-  if (BigInt(auth.value ?? 0) < BigInt(AMOUNT)) {
-    return { valid: false, reason: `Amount too low: ${auth.value} < ${AMOUNT}` };
-  }
-
-  // Verify payTo
-  if ((auth.to ?? "").toLowerCase() !== (WALLET ?? "").toLowerCase()) {
-    return { valid: false, reason: "Wrong payTo address" };
-  }
-
-  // Verify timing
-  const now = Math.floor(Date.now() / 1000);
-  if (now < Number(auth.validAfter ?? 0)) {
-    return { valid: false, reason: "Authorization not yet valid" };
-  }
-  if (now > Number(auth.validBefore ?? 0)) {
-    return { valid: false, reason: "Authorization expired" };
-  }
-
-  // Recover signer from EIP-712 signature
-  try {
-    const recovered = await recoverTypedDataAddress({
-      domain: {
-        name: chain.name,
-        version: chain.version,
-        chainId: chain.chainId,
-        verifyingContract: chain.asset,
+async function getMiddleware() {
+  if (middleware) return middleware;
+  x402Server = await createX402Server({
+    routes: {
+      "POST /api/extract": {
+        price: "$0.005",
+        description: "PDF and document text extraction — $0.005 per request",
+        mimeType: "application/json",
       },
-      types: {
-        TransferWithAuthorization: [
-          { name: "from", type: "address" },
-          { name: "to", type: "address" },
-          { name: "value", type: "uint256" },
-          { name: "validAfter", type: "uint256" },
-          { name: "validBefore", type: "uint256" },
-          { name: "nonce", type: "bytes32" },
-        ],
-      },
-      primaryType: "TransferWithAuthorization",
-      message: {
-        from: auth.from,
-        to: auth.to,
-        value: BigInt(auth.value),
-        validAfter: BigInt(auth.validAfter),
-        validBefore: BigInt(auth.validBefore),
-        nonce: auth.nonce,
-      },
-      signature: p.payload.signature,
-    });
-
-    if (recovered.toLowerCase() !== (auth.from ?? "").toLowerCase()) {
-      return { valid: false, reason: "Signature does not match from address" };
-    }
-  } catch (e) {
-    return { valid: false, reason: `Signature recovery failed: ${e.message}` };
-  }
-
-  return { valid: true, network: p.network, from: auth.from };
+    },
+    payToConfig: {
+      type: "address",
+      evm: WALLET,
+    },
+    // CDP credentials read from env: CDP_API_KEY_ID, CDP_API_KEY_SECRET
+  });
+  middleware = paymentMiddlewareFromHTTPServer(x402Server);
+  return middleware;
 }
 
-// PDF extraction
-async function extractPdf(buffer) {
-  const pdfParse = (await import("pdf-parse/lib/pdf-parse.js")).default;
+// --- Extraction helpers ---
+async function fetchBuffer(url) {
+  const r = await fetch(url, {
+    headers: { "User-Agent": "ExtractPDF/1.0" },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!r.ok) throw new Error(`Fetch failed: ${r.status}`);
+  const buf = await r.arrayBuffer();
+  return { buffer: Buffer.from(buf), contentType: r.headers.get("content-type") || "" };
+}
+
+async function extractContent(url, base64Content, format) {
+  let buffer, contentType = "";
+
+  if (base64Content) {
+    buffer = Buffer.from(base64Content, "base64");
+  } else {
+    const result = await fetchBuffer(url);
+    buffer = result.buffer;
+    contentType = result.contentType;
+  }
+
+  const fmt = format || (contentType.includes("pdf") ? "pdf"
+    : contentType.includes("word") || contentType.includes("docx") ? "docx"
+    : url?.toLowerCase().endsWith(".docx") ? "docx"
+    : "pdf");
+
+  if (fmt === "docx") {
+    const result = await mammoth.extractRawText({ buffer });
+    const text = result.value.trim();
+    return { format: "docx", text, length: text.length };
+  }
+
   const data = await pdfParse(buffer);
   return {
-    text: data.text.trim().slice(0, 50000),
-    pages: data.numpages,
-    chars: data.text.length,
-    title: data.info?.Title || "",
-    author: data.info?.Author || "",
     format: "pdf",
+    text: data.text.trim().slice(0, 50000),
+    length: data.text.trim().length,
+    pages: data.numpages,
+    info: {
+      title: data.info?.Title || null,
+      author: data.info?.Author || null,
+      subject: data.info?.Subject || null,
+    },
   };
 }
 
-// DOCX extraction
-async function extractDocx(buffer) {
-  const mammoth = (await import("mammoth")).default;
-  const result = await mammoth.extractRawText({ buffer });
-  const text = result.value.trim().slice(0, 50000);
-  return { text, pages: null, chars: text.length, title: "", author: "", format: "docx" };
-}
-
-// Plain text fallback
-function extractText(buffer) {
-  const text = buffer.toString("utf-8").trim().slice(0, 50000);
-  return { text, pages: null, chars: text.length, title: "", author: "", format: "text" };
-}
-
-export default async function handler(req, res) {
-  // CORS
+// --- Express app ---
+const app = express();
+app.use(express.json({ limit: "10mb" }));
+app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-PAYMENT, Accept");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-PAYMENT, PAYMENT-SIGNATURE, Accept");
   if (req.method === "OPTIONS") return res.status(204).end();
+  next();
+});
 
-  const host = req.headers.host || "www.extractpdf.xyz";
-  const resourceUrl = `https://${host}/api/extract`;
-
-  // Health check
-  if (req.method === "GET") {
-    return res.status(200).json({
-      service: "ExtractPDF",
-      description: "Pay-per-use PDF and document extraction for AI agents",
-      price: "$0.005 USDC per extraction",
-      endpoint: "POST /api/extract",
-      accepts_formats: ["pdf", "docx", "txt"],
-      chains: ["Base (eip155:8453)", "Arc (eip155:5042)", "Polygon (eip155:137)"],
-      docs: "https://www.extractpdf.xyz",
-    });
-  }
-
-  // Payment gate — x402 v2 format (Payment-Required header) for AgentCash + Circle CLI compatibility
-  // Also accepts X-PAYMENT header (x402 v1 clients)
-  const paymentHeader = req.headers["x-payment"] || req.headers["payment-authorization"];
-  if (!paymentHeader) {
-    const paymentRequired = Buffer.from(JSON.stringify({
-      x402Version: 2,
-      accepts,
-      error: "Payment required",
-      resource: { url: resourceUrl, description: "PDF and document text extraction — $0.005 per request", mimeType: "application/json" },
-    })).toString("base64");
-    res.setHeader("Payment-Required", paymentRequired);
-    res.setHeader("WWW-Authenticate", `MPP realm="${resourceUrl}", price="0.005", currency="USD"`);
-    return res.status(402).json({
-      x402Version: 2,
-      error: "Payment required",
-      resource: { url: resourceUrl, description: "PDF and document text extraction — $0.005 per request", mimeType: "application/json" },
-      accepts,
-    });
-  }
-
-  // Verify payment signature
-  const verification = await verifyPayment(paymentHeader);
-  if (!verification.valid) {
-    res.setHeader("WWW-Authenticate", `MPP realm="${resourceUrl}", price="0.005", currency="USD"`);
-    return res.status(402).json({
-      x402Version: 2,
-      error: `Payment verification failed: ${verification.reason}`,
-      resource: { url: resourceUrl, description: "PDF and document text extraction" },
-      accepts,
-    });
-  }
-
-  // Extract document
-  const body = req.method === "POST" ? req.body : null;
-  const url = (body && body.url) || req.query.url;
-  if (!url) return res.status(400).json({ error: "Missing required field: url" });
-
+// Payment middleware (async init)
+app.use(async (req, res, next) => {
   try {
-    const response = await fetch(url, {
-      headers: { "User-Agent": "ExtractPDF/1.0 (+https://www.extractpdf.xyz)" },
-      signal: AbortSignal.timeout(15000),
+    const mw = await getMiddleware();
+    mw(req, res, next);
+  } catch (e) {
+    console.error("x402 middleware init error:", e.message);
+    next(e);
+  }
+});
+
+// Health check (free)
+app.get("/api/extract", (req, res) => {
+  res.json({
+    service: "ExtractPDF",
+    description: "PDF and document text extraction for AI agents",
+    price: "$0.005 USDC per request",
+    usage: 'POST /api/extract with {"url":"https://..."} or {"base64":"...","format":"pdf|docx"}',
+  });
+});
+
+// Paid extraction endpoint
+app.post("*", async (req, res) => {
+  const { url, base64, format } = req.body || {};
+  if (!url && !base64) {
+    return res.status(400).json({ error: "Missing required field: url or base64" });
+  }
+  try {
+    const result = await extractContent(url, base64, format);
+    return res.json({
+      url: url || null,
+      ...result,
+      scraped_at: new Date().toISOString(),
     });
-    if (!response.ok) {
-      return res.status(422).json({ error: "Failed to fetch document", detail: `HTTP ${response.status}` });
-    }
-
-    const contentType = (response.headers.get("content-type") || "").toLowerCase();
-    const buffer = Buffer.from(await response.arrayBuffer());
-
-    let extracted;
-    if (contentType.includes("pdf") || url.toLowerCase().endsWith(".pdf")) {
-      extracted = await extractPdf(buffer);
-    } else if (contentType.includes("wordprocessingml") || url.toLowerCase().endsWith(".docx")) {
-      extracted = await extractDocx(buffer);
-    } else {
-      extracted = extractText(buffer);
-    }
-
-    console.log(`[ExtractPDF] paid extraction from ${verification.from} on ${verification.network} — ${url}`);
-    return res.status(200).json({ url, ...extracted, extracted_at: new Date().toISOString() });
   } catch (err) {
+    console.error("Extraction error:", err.message);
     return res.status(500).json({ error: "Extraction failed", detail: err.message });
   }
-}
+});
+
+export default app;
