@@ -37,7 +37,7 @@ const accepts = Object.entries(CHAINS).map(([network, c]) => ({
   asset: c.asset,
   payTo: WALLET,
   maxTimeoutSeconds: 300,
-  extra: { name: c.name, version: c.version },
+  extra: { name: c.name, version: c.version, assetTransferMethod: "eip3009" },
 }));
 
 // Verify EIP-3009 TransferWithAuthorization signature
