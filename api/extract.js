@@ -52,7 +52,22 @@ function buildCdpJwt(method, path) {
   const pem = CDP_KEY_SECRET
     .replace(/\\n/g, "\n")   // literal backslash-n → real newline
     .replace(/\r\n/g, "\n"); // CRLF → LF
-  const privateKey = createPrivateKey({ key: pem, format: "pem" });
+
+  // Debug: log key shape (never the value) to help diagnose parse errors
+  const firstLine = pem.split("\n")[0];
+  const lineCount = pem.split("\n").length;
+  console.log(`[CDP JWT] key shape: firstLine="${firstLine}", lines=${lineCount}, totalLen=${pem.length}`);
+
+  let privateKey;
+  if (pem.includes("BEGIN")) {
+    privateKey = createPrivateKey({ key: pem, format: "pem" });
+  } else {
+    // Raw base64 Ed25519 private key (32 bytes) — wrap as DER seed
+    const raw = Buffer.from(pem.trim(), "base64");
+    // Ed25519 PKCS#8 DER prefix (RFC 8410)
+    const der = Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), raw]);
+    privateKey = createPrivateKey({ key: der, format: "der", type: "pkcs8" });
+  }
   const sigBuf = sign(null, msg, privateKey); // null = use key's own algorithm (Ed25519)
   return `${header}.${payload}.${sigBuf.toString("base64url")}`;
 }
