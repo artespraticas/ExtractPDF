@@ -41,6 +41,7 @@ const accepts = Object.entries(CHAINS).map(([network, c]) => ({
 }));
 
 // Verify EIP-3009 TransferWithAuthorization signature
+// Handles both x402 v1 flat format and x402 v2 nested format
 async function verifyPayment(paymentHeader) {
   let p;
   try {
@@ -49,8 +50,18 @@ async function verifyPayment(paymentHeader) {
     return { valid: false, reason: "Invalid base64 payment header" };
   }
 
-  const chain = CHAINS[p.network];
-  if (!chain) return { valid: false, reason: `Unsupported network: ${p.network}` };
+  // x402 v2: { x402Version:2, resource, accepted:{network,...}, payload:{signature, authorization} }
+  // x402 v1: { scheme, network, payload:{signature, authorization} }
+  const network = p.network || p.accepted?.network;
+  const payloadObj = p.payload;
+
+  const chain = CHAINS[network];
+  if (!chain) return { valid: false, reason: `Unsupported network: ${network}` };
+
+  // Rebuild p in v1 shape for the rest of the function
+  if (!p.network && p.accepted) {
+    p = { ...p.accepted, payload: payloadObj, network };
+  }
 
   const auth = p.payload?.authorization;
   if (!auth) return { valid: false, reason: "Missing authorization" };
@@ -166,18 +177,22 @@ export default async function handler(req, res) {
     });
   }
 
-  // Payment gate
-  const paymentHeader = req.headers["x-payment"];
+  // Payment gate — x402 v2 format (Payment-Required header) for AgentCash + Circle CLI compatibility
+  // Also accepts X-PAYMENT header (x402 v1 clients)
+  const paymentHeader = req.headers["x-payment"] || req.headers["payment-authorization"];
   if (!paymentHeader) {
+    const paymentRequired = Buffer.from(JSON.stringify({
+      x402Version: 2,
+      accepts,
+      error: "Payment required",
+      resource: { url: resourceUrl, description: "PDF and document text extraction — $0.005 per request", mimeType: "application/json" },
+    })).toString("base64");
+    res.setHeader("Payment-Required", paymentRequired);
     res.setHeader("WWW-Authenticate", `MPP realm="${resourceUrl}", price="0.005", currency="USD"`);
     return res.status(402).json({
-      x402Version: 1,
+      x402Version: 2,
       error: "Payment required",
-      resource: {
-        url: resourceUrl,
-        description: "PDF and document text extraction — $0.005 per request",
-        mimeType: "application/json",
-      },
+      resource: { url: resourceUrl, description: "PDF and document text extraction — $0.005 per request", mimeType: "application/json" },
       accepts,
     });
   }
@@ -185,8 +200,9 @@ export default async function handler(req, res) {
   // Verify payment signature
   const verification = await verifyPayment(paymentHeader);
   if (!verification.valid) {
+    res.setHeader("WWW-Authenticate", `MPP realm="${resourceUrl}", price="0.005", currency="USD"`);
     return res.status(402).json({
-      x402Version: 1,
+      x402Version: 2,
       error: `Payment verification failed: ${verification.reason}`,
       resource: { url: resourceUrl, description: "PDF and document text extraction" },
       accepts,
