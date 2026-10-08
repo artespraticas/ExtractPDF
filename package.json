@@ -4,8 +4,6 @@
   "type": "module",
   "description": "Pay-per-use PDF and document extraction API for AI agents",
   "dependencies": {
-    "@coinbase/cdp-sdk": "^1.0.0",
-    "@x402/express": "^2.0.0",
     "express": "^4.18.0",
     "pdf-parse": "^1.1.1",
     "mammoth": "^1.6.0"
