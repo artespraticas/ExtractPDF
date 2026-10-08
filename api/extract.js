@@ -1,7 +1,7 @@
 import express from "express";
 import pdfParse from "pdf-parse/lib/pdf-parse.js";
 import mammoth from "mammoth";
-import { createHmac } from "crypto";
+import { createPrivateKey, sign } from "crypto";
 
 const WALLET = process.env.WALLET_ADDRESS;
 const CDP_KEY_ID = process.env.CDP_API_KEY_ID;
@@ -33,18 +33,25 @@ const accepts = CHAINS.map(c => ({
   extra: { name: c.name, version: c.version, assetTransferMethod: "eip3009" },
 }));
 
-// Build CDP API JWT for authenticating facilitator calls
+// Build CDP API JWT — Ed25519 (the only algorithm CDP issues)
 function buildCdpJwt(method, path) {
   if (!CDP_KEY_ID || !CDP_KEY_SECRET) return null;
   const now = Math.floor(Date.now() / 1000);
-  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT", kid: CDP_KEY_ID })).toString("base64url");
+  const nonce = Math.random().toString(36).slice(2, 10);
+  const header = Buffer.from(JSON.stringify({ alg: "EdDSA", typ: "JWT", kid: CDP_KEY_ID, nonce })).toString("base64url");
   const payload = Buffer.from(JSON.stringify({
-    iss: CDP_KEY_ID, sub: CDP_KEY_ID,
-    nbf: now, exp: now + 120, iat: now,
+    iss: "cdp",
+    sub: CDP_KEY_ID,
+    nbf: now,
+    exp: now + 120,
+    iat: now,
     uri: `${method} api.cdp.coinbase.com${path}`,
   })).toString("base64url");
-  const sig = createHmac("sha256", CDP_KEY_SECRET).update(`${header}.${payload}`).digest("base64url");
-  return `${header}.${payload}.${sig}`;
+  const msg = Buffer.from(`${header}.${payload}`);
+  // CDP_API_KEY_SECRET is a PEM Ed25519 private key
+  const privateKey = createPrivateKey(CDP_KEY_SECRET.replace(/\\n/g, "\n"));
+  const sigBuf = sign(null, msg, privateKey); // null = use key's own algorithm (Ed25519)
+  return `${header}.${payload}.${sigBuf.toString("base64url")}`;
 }
 
 // Call CDP facilitator to verify payment
