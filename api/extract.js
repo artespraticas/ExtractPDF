@@ -48,8 +48,11 @@ function buildCdpJwt(method, path) {
     uri: `${method} api.cdp.coinbase.com${path}`,
   })).toString("base64url");
   const msg = Buffer.from(`${header}.${payload}`);
-  // CDP_API_KEY_SECRET is a PEM Ed25519 private key
-  const privateKey = createPrivateKey(CDP_KEY_SECRET.replace(/\\n/g, "\n"));
+  // CDP_API_KEY_SECRET may have literal \n (Vercel env) or real newlines — normalize both
+  const pem = CDP_KEY_SECRET
+    .replace(/\\n/g, "\n")   // literal backslash-n → real newline
+    .replace(/\r\n/g, "\n"); // CRLF → LF
+  const privateKey = createPrivateKey({ key: pem, format: "pem" });
   const sigBuf = sign(null, msg, privateKey); // null = use key's own algorithm (Ed25519)
   return `${header}.${payload}.${sigBuf.toString("base64url")}`;
 }
