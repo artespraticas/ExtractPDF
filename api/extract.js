@@ -30,7 +30,7 @@ const accepts = CHAINS.map(c => ({
   asset: c.asset,
   payTo: WALLET,
   maxTimeoutSeconds: 300,
-  extra: { name: c.name, version: c.version, decimals: 6 },
+  extra: { name: c.name, version: c.version },
 }));
 
 // Build CDP API JWT — matches CDP SDK exactly (see cdp-sdk/src/auth/utils/jwt.ts)
@@ -182,17 +182,14 @@ app.get("*", (req, res) => {
 app.post("*", async (req, res) => {
   const paymentHeader = req.headers["x-payment"] || req.headers["payment-signature"];
 
-  // No payment — return 402
+  // No payment — return 402 in x402 v2 format (matches StableEnrich / AgentCash expected format)
   if (!paymentHeader) {
-    // Body uses v1 (for legacy clients); Payment-Required header uses v2 (for AgentCash + modern clients)
     const body402 = {
-      x402Version: 1,
+      x402Version: 2,
       error: "Payment required",
       resource: { url: RESOURCE_URL, description: "PDF and document text extraction — $0.005 per request", mimeType: "application/json" },
       accepts,
     };
-    const header402 = { x402Version: 2, accepts };
-    res.setHeader("Payment-Required", Buffer.from(JSON.stringify(header402)).toString("base64"));
     res.setHeader("WWW-Authenticate", `MPP realm="${RESOURCE_URL}", price="0.005", currency="USD"`);
     return res.status(402).json(body402);
   }
@@ -201,7 +198,7 @@ app.post("*", async (req, res) => {
   const verification = await verifyWithCdp(paymentHeader).catch(e => ({ valid: false, reason: e.message }));
   if (!verification.valid) {
     return res.status(402).json({
-      x402Version: 1,
+      x402Version: 2,
       error: `Payment verification failed: ${verification.reason}`,
       resource: { url: RESOURCE_URL, description: "PDF and document text extraction" },
       accepts,
