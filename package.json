@@ -5,7 +5,8 @@
   "description": "Pay-per-use PDF and document extraction API for AI agents",
   "dependencies": {
     "express": "^4.18.0",
+    "mammoth": "^1.6.0",
     "pdf-parse": "^1.1.1",
-    "mammoth": "^1.6.0"
+    "viem": "^2.0.0"
   }
 }

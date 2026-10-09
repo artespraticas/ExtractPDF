@@ -1,119 +1,98 @@
 import express from "express";
 import pdfParse from "pdf-parse/lib/pdf-parse.js";
 import mammoth from "mammoth";
-import { createPrivateKey, sign, randomBytes } from "crypto";
+import { recoverTypedDataAddress, getAddress } from "viem";
 
-const WALLET = process.env.WALLET_ADDRESS;
-const CDP_KEY_ID = process.env.CDP_API_KEY_ID;
-const CDP_KEY_SECRET = process.env.CDP_API_KEY_SECRET;
-
+const WALLET = (process.env.WALLET_ADDRESS ?? "").toLowerCase();
 if (!WALLET) throw new Error("WALLET_ADDRESS env var required");
 
-// CDP Facilitator endpoints
-const CDP_FACILITATOR = "https://api.cdp.coinbase.com/platform/x402/v1";
+// Chain registry — identical to Scrape Agent
+const CHAINS = {
+  "eip155:8453": { chainId: 8453, usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", name: "USD Coin", version: "2" },
+  "eip155:5042": { chainId: 5042, usdc: "0x3600000000000000000000000000000000000000", name: "USD Coin", version: "2" },
+  "eip155:137":  { chainId: 137,  usdc: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", name: "USD Coin", version: "2" },
+};
 
-// Payment requirements for all 3 mainnet chains
-const CHAINS = [
-  { network: "eip155:8453", asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", name: "USD Coin", version: "2" },
-  { network: "eip155:5042", asset: "0x3600000000000000000000000000000000000000", name: "USD Coin", version: "2" },
-  { network: "eip155:137", asset: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", name: "USD Coin", version: "2" },
-];
-
-const AMOUNT = "5000"; // $0.005 USDC in 6-decimal units
+const AMOUNT = "5000"; // $0.005 — 6-decimal USDC
 const RESOURCE_URL = "https://www.extractpdf.xyz/api/extract";
 
-const accepts = CHAINS.map(c => ({
+const accepts = Object.entries(CHAINS).map(([network, c]) => ({
   scheme: "exact",
-  network: c.network,
+  network,
   amount: AMOUNT,
   maxAmountRequired: AMOUNT,
-  asset: c.asset,
-  payTo: WALLET,
+  asset: c.usdc,
+  payTo: process.env.WALLET_ADDRESS ?? "",
   maxTimeoutSeconds: 300,
-  extra: { name: c.name, version: c.version },
+  extra: { name: c.name, version: c.version, assetTransferMethod: "eip3009" },
 }));
 
-// Build CDP API JWT — matches CDP SDK exactly (see cdp-sdk/src/auth/utils/jwt.ts)
-function buildCdpJwt(method, path) {
-  if (!CDP_KEY_ID || !CDP_KEY_SECRET) return null;
-  const now = Math.floor(Date.now() / 1000);
-  // Random 16-byte hex nonce
-  const nonce = randomBytes(16).toString("hex");
-
-  // CDP Ed25519 secret is 64 bytes base64: first 32 = seed, last 32 = public key
-  const decoded = Buffer.from(CDP_KEY_SECRET.trim(), "base64");
-  if (decoded.length !== 64) throw new Error(`CDP key must be 64 bytes base64, got ${decoded.length}`);
-  const seed = decoded.subarray(0, 32);
-  const pubKey = decoded.subarray(32);
-
-  // Build PKCS#8 DER for the seed (RFC 8410 Ed25519)
-  // DER prefix for Ed25519 PKCS#8 private key: 302e020100300506032b657004220420
-  const derPrefix = Buffer.from("302e020100300506032b657004220420", "hex");
-  const der = Buffer.concat([derPrefix, seed]);
-  const privateKey = createPrivateKey({ key: der, format: "der", type: "pkcs8" });
-
-  // JWT header + payload — note: uris is an ARRAY (CDP SDK uses claims.uris = [...])
-  const header = Buffer.from(JSON.stringify({ alg: "EdDSA", typ: "JWT", kid: CDP_KEY_ID, nonce })).toString("base64url");
-  const payload = Buffer.from(JSON.stringify({
-    iss: "cdp",
-    sub: CDP_KEY_ID,
-    nbf: now,
-    exp: now + 120,
-    iat: now,
-    uris: [`${method} api.cdp.coinbase.com${path}`], // array, not string
-  })).toString("base64url");
-
-  const msg = Buffer.from(`${header}.${payload}`);
-  const sigBuf = sign(null, msg, privateKey);
-  return `${header}.${payload}.${sigBuf.toString("base64url")}`;
-}
-
-// Call CDP facilitator to verify payment
-async function verifyWithCdp(paymentHeader) {
-  const jwt = buildCdpJwt("POST", "/platform/x402/v1/verify");
-  const headers = { "Content-Type": "application/json" };
-  if (jwt) headers["Authorization"] = `Bearer ${jwt}`;
-
-  let paymentPayload;
+// Self-verify EIP-712 TransferWithAuthorization — same pattern as Scrape Agent
+async function verifyPayment(header) {
+  let payload;
   try {
-    const decoded = Buffer.from(paymentHeader, "base64").toString("utf8");
-    paymentPayload = JSON.parse(decoded);
+    payload = JSON.parse(Buffer.from(header, "base64").toString("utf8"));
   } catch {
-    return { valid: false, reason: "Invalid base64 payment header" };
+    return { ok: false, error: "Invalid payment header encoding" };
   }
 
-  const res = await fetch(`${CDP_FACILITATOR}/verify`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ paymentPayload, paymentRequirements: accepts }),
-    signal: AbortSignal.timeout(8000),
-  });
+  const { scheme, network, payload: p } = payload;
+  const chain = CHAINS[network];
+  if (!chain) return { ok: false, error: `Unsupported network: ${network}` };
+  if (scheme !== "exact") return { ok: false, error: `Unsupported scheme: ${scheme}` };
 
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || data.isValid === false) {
-    return { valid: false, reason: data.invalidReason || data.error || "Verification failed" };
+  const { signature, authorization: auth } = p ?? {};
+  if (!signature || !auth) return { ok: false, error: "Missing signature or authorization" };
+
+  try {
+    const domain = {
+      name: chain.name,
+      version: chain.version,
+      chainId: chain.chainId,
+      verifyingContract: getAddress(chain.usdc),
+    };
+    const types = {
+      TransferWithAuthorization: [
+        { name: "from",        type: "address" },
+        { name: "to",          type: "address" },
+        { name: "value",       type: "uint256" },
+        { name: "validAfter",  type: "uint256" },
+        { name: "validBefore", type: "uint256" },
+        { name: "nonce",       type: "bytes32" },
+      ],
+    };
+    const message = {
+      from:        getAddress(auth.from),
+      to:          getAddress(auth.to),
+      value:       BigInt(auth.value),
+      validAfter:  BigInt(auth.validAfter),
+      validBefore: BigInt(auth.validBefore),
+      nonce:       auth.nonce,
+    };
+
+    const now = BigInt(Math.floor(Date.now() / 1000));
+    if (now < message.validAfter)  return { ok: false, error: "Payment not yet valid" };
+    if (now > message.validBefore) return { ok: false, error: "Payment expired" };
+    if (BigInt(auth.value) < BigInt(AMOUNT)) return { ok: false, error: "Insufficient payment amount" };
+    if (auth.to.toLowerCase() !== WALLET) return { ok: false, error: "Wrong payment recipient" };
+
+    const recovered = await recoverTypedDataAddress({
+      domain, types, primaryType: "TransferWithAuthorization", message, signature,
+    });
+    if (recovered.toLowerCase() !== auth.from.toLowerCase()) {
+      return { ok: false, error: "Signature mismatch" };
+    }
+
+    return { ok: true, from: auth.from, network, amount: auth.value };
+  } catch (err) {
+    return { ok: false, error: err?.message ?? String(err) };
   }
-  return { valid: true, paymentPayload };
 }
 
-// Call CDP facilitator to settle payment (non-blocking — best effort)
-async function settleWithCdp(paymentPayload) {
-  const jwt = buildCdpJwt("POST", "/platform/x402/v1/settle");
-  const headers = { "Content-Type": "application/json" };
-  if (jwt) headers["Authorization"] = `Bearer ${jwt}`;
-
-  fetch(`${CDP_FACILITATOR}/settle`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ paymentPayload, paymentRequirements: accepts }),
-    signal: AbortSignal.timeout(10000),
-  }).catch(e => console.error("Settle error:", e.message));
-}
-
-// --- Extraction helpers ---
+// Extraction helpers
 async function fetchBuffer(url) {
   const r = await fetch(url, {
-    headers: { "User-Agent": "ExtractPDF/1.0" },
+    headers: { "User-Agent": "ExtractPDF/1.0 (+https://www.extractpdf.xyz)" },
     signal: AbortSignal.timeout(8000),
   });
   if (!r.ok) throw new Error(`Fetch failed: ${r.status}`);
@@ -132,10 +111,12 @@ async function extractContent(url, base64Content, format) {
     contentType = result.contentType;
   }
 
-  const fmt = format || (contentType.includes("pdf") ? "pdf"
+  const fmt = format || (
+    contentType.includes("pdf") ? "pdf"
     : contentType.includes("word") || contentType.includes("docx") ? "docx"
     : url?.toLowerCase().endsWith(".docx") ? "docx"
-    : "pdf");
+    : "pdf"
+  );
 
   if (fmt === "docx") {
     const result = await mammoth.extractRawText({ buffer });
@@ -157,7 +138,7 @@ async function extractContent(url, base64Content, format) {
   };
 }
 
-// --- Express app ---
+// Express app
 const app = express();
 app.use(express.json({ limit: "10mb" }));
 app.use((req, res, next) => {
@@ -172,20 +153,19 @@ app.use((req, res, next) => {
 app.get("*", (req, res) => {
   res.json({
     service: "ExtractPDF",
-    description: "PDF and document text extraction for AI agents",
+    description: "PDF and DOCX text extraction for AI agents",
     price: "$0.005 USDC per request",
     usage: 'POST /api/extract with {"url":"https://..."} or {"base64":"...","format":"pdf|docx"}',
+    chains: Object.keys(CHAINS),
   });
 });
 
 // Paid extraction endpoint
 app.post("*", async (req, res) => {
-  const paymentHeader = req.headers["x-payment"] || req.headers["payment-signature"];
+  const paymentHeader = req.headers["x-payment"] ?? req.headers["payment-signature"];
 
-  // No payment — return 402
   if (!paymentHeader) {
-    // AgentCash reads Payment-Required header (base64 JSON), not the body.
-    // Only include Base in the header — AgentCash only supports eip155:8453 and solana.
+    // AgentCash reads the Payment-Required header (base64). Only Base in the header.
     const acceptsForHeader = accepts.filter(a => a.network === "eip155:8453");
     const header402 = {
       x402Version: 2,
@@ -194,7 +174,6 @@ app.post("*", async (req, res) => {
     };
     res.setHeader("Payment-Required", Buffer.from(JSON.stringify(header402)).toString("base64"));
     res.setHeader("WWW-Authenticate", `MPP realm="${RESOURCE_URL}", price="0.005", currency="USD"`);
-    // Full body for other clients (MPP, browsers, etc.)
     return res.status(402).json({
       x402Version: 2,
       error: "Payment required",
@@ -203,18 +182,16 @@ app.post("*", async (req, res) => {
     });
   }
 
-  // Verify payment via CDP facilitator
-  const verification = await verifyWithCdp(paymentHeader).catch(e => ({ valid: false, reason: e.message }));
-  if (!verification.valid) {
+  const verification = await verifyPayment(paymentHeader);
+  if (!verification.ok) {
     return res.status(402).json({
       x402Version: 2,
-      error: `Payment verification failed: ${verification.reason}`,
+      error: verification.error,
       resource: { url: RESOURCE_URL, description: "PDF and document text extraction" },
       accepts,
     });
   }
 
-  // Extract content
   const { url, base64, format } = req.body || {};
   if (!url && !base64) {
     return res.status(400).json({ error: "Missing required field: url or base64" });
@@ -222,8 +199,6 @@ app.post("*", async (req, res) => {
 
   try {
     const result = await extractContent(url, base64, format);
-    // Settle payment non-blocking
-    settleWithCdp(verification.paymentPayload);
     return res.json({ url: url || null, ...result, scraped_at: new Date().toISOString() });
   } catch (err) {
     console.error("Extraction error:", err.message);
