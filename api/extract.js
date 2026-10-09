@@ -182,16 +182,25 @@ app.get("*", (req, res) => {
 app.post("*", async (req, res) => {
   const paymentHeader = req.headers["x-payment"] || req.headers["payment-signature"];
 
-  // No payment — return 402 in x402 v2 format (matches StableEnrich / AgentCash expected format)
+  // No payment — return 402
   if (!paymentHeader) {
-    const body402 = {
+    // AgentCash reads Payment-Required header (base64 JSON), not the body.
+    // Only include Base in the header — AgentCash only supports eip155:8453 and solana.
+    const acceptsForHeader = accepts.filter(a => a.network === "eip155:8453");
+    const header402 = {
+      x402Version: 2,
+      resource: { url: RESOURCE_URL, method: "POST", description: "PDF and document text extraction", mimeType: "application/json" },
+      accepts: acceptsForHeader,
+    };
+    res.setHeader("Payment-Required", Buffer.from(JSON.stringify(header402)).toString("base64"));
+    res.setHeader("WWW-Authenticate", `MPP realm="${RESOURCE_URL}", price="0.005", currency="USD"`);
+    // Full body for other clients (MPP, browsers, etc.)
+    return res.status(402).json({
       x402Version: 2,
       error: "Payment required",
       resource: { url: RESOURCE_URL, description: "PDF and document text extraction — $0.005 per request", mimeType: "application/json" },
       accepts,
-    };
-    res.setHeader("WWW-Authenticate", `MPP realm="${RESOURCE_URL}", price="0.005", currency="USD"`);
-    return res.status(402).json(body402);
+    });
   }
 
   // Verify payment via CDP facilitator
