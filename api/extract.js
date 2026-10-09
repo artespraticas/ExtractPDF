@@ -36,6 +36,10 @@ async function verifyPayment(header) {
     return { ok: false, error: "Invalid payment header encoding" };
   }
 
+  // Log structure for debugging (no sensitive values)
+  console.log("PAYMENT_KEYS:", Object.keys(payload).join(","));
+  console.log("PAYMENT_NETWORK:", payload.network ?? payload.networkId ?? payload.chain ?? "none");
+
   const { scheme, network, payload: p } = payload;
   const chain = CHAINS[network];
   if (!chain) return { ok: false, error: `Unsupported network: ${network}` };
