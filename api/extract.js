@@ -188,13 +188,15 @@ app.post("*", async (req, res) => {
 
   // No payment — return 402
   if (!paymentHeader) {
+    // Body uses v1 (for legacy clients); Payment-Required header uses v2 (for AgentCash + modern clients)
     const body402 = {
       x402Version: 1,
       error: "Payment required",
       resource: { url: RESOURCE_URL, description: "PDF and document text extraction — $0.005 per request", mimeType: "application/json" },
       accepts,
     };
-    res.setHeader("Payment-Required", Buffer.from(JSON.stringify(body402)).toString("base64"));
+    const header402 = { x402Version: 2, accepts };
+    res.setHeader("Payment-Required", Buffer.from(JSON.stringify(header402)).toString("base64"));
     res.setHeader("WWW-Authenticate", `MPP realm="${RESOURCE_URL}", price="0.005", currency="USD"`);
     return res.status(402).json(body402);
   }
