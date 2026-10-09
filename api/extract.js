@@ -30,7 +30,7 @@ const accepts = CHAINS.map(c => ({
   asset: c.asset,
   payTo: WALLET,
   maxTimeoutSeconds: 300,
-  extra: { name: c.name, version: c.version, assetTransferMethod: "eip3009" },
+  extra: { name: c.name, version: c.version, decimals: 6 },
 }));
 
 // Build CDP API JWT — Ed25519 (the only algorithm CDP issues)
@@ -188,27 +188,22 @@ app.post("*", async (req, res) => {
 
   // No payment — return 402
   if (!paymentHeader) {
-    const paymentRequired = Buffer.from(JSON.stringify({
-      x402Version: 2,
-      accepts,
+    const body402 = {
+      x402Version: 1,
       error: "Payment required",
       resource: { url: RESOURCE_URL, description: "PDF and document text extraction — $0.005 per request", mimeType: "application/json" },
-    })).toString("base64");
-    res.setHeader("Payment-Required", paymentRequired);
+      accepts,
+    };
+    res.setHeader("Payment-Required", Buffer.from(JSON.stringify(body402)).toString("base64"));
     res.setHeader("WWW-Authenticate", `MPP realm="${RESOURCE_URL}", price="0.005", currency="USD"`);
-    return res.status(402).json({
-      x402Version: 2,
-      error: "Payment required",
-      resource: { url: RESOURCE_URL, description: "PDF and document text extraction — $0.005 per request", mimeType: "application/json" },
-      accepts,
-    });
+    return res.status(402).json(body402);
   }
 
   // Verify payment via CDP facilitator
   const verification = await verifyWithCdp(paymentHeader).catch(e => ({ valid: false, reason: e.message }));
   if (!verification.valid) {
     return res.status(402).json({
-      x402Version: 2,
+      x402Version: 1,
       error: `Payment verification failed: ${verification.reason}`,
       resource: { url: RESOURCE_URL, description: "PDF and document text extraction" },
       accepts,
