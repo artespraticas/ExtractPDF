@@ -1,7 +1,7 @@
 import express from "express";
 import pdfParse from "pdf-parse/lib/pdf-parse.js";
 import mammoth from "mammoth";
-import { createPrivateKey, sign } from "crypto";
+import { createPrivateKey, sign, randomBytes } from "crypto";
 
 const WALLET = process.env.WALLET_ADDRESS;
 const CDP_KEY_ID = process.env.CDP_API_KEY_ID;
@@ -33,11 +33,26 @@ const accepts = CHAINS.map(c => ({
   extra: { name: c.name, version: c.version, decimals: 6 },
 }));
 
-// Build CDP API JWT — Ed25519 (the only algorithm CDP issues)
+// Build CDP API JWT — matches CDP SDK exactly (see cdp-sdk/src/auth/utils/jwt.ts)
 function buildCdpJwt(method, path) {
   if (!CDP_KEY_ID || !CDP_KEY_SECRET) return null;
   const now = Math.floor(Date.now() / 1000);
-  const nonce = Math.random().toString(36).slice(2, 10);
+  // Random 16-byte hex nonce
+  const nonce = randomBytes(16).toString("hex");
+
+  // CDP Ed25519 secret is 64 bytes base64: first 32 = seed, last 32 = public key
+  const decoded = Buffer.from(CDP_KEY_SECRET.trim(), "base64");
+  if (decoded.length !== 64) throw new Error(`CDP key must be 64 bytes base64, got ${decoded.length}`);
+  const seed = decoded.subarray(0, 32);
+  const pubKey = decoded.subarray(32);
+
+  // Build PKCS#8 DER for the seed (RFC 8410 Ed25519)
+  // DER prefix for Ed25519 PKCS#8 private key: 302e020100300506032b657004220420
+  const derPrefix = Buffer.from("302e020100300506032b657004220420", "hex");
+  const der = Buffer.concat([derPrefix, seed]);
+  const privateKey = createPrivateKey({ key: der, format: "der", type: "pkcs8" });
+
+  // JWT header + payload — note: uris is an ARRAY (CDP SDK uses claims.uris = [...])
   const header = Buffer.from(JSON.stringify({ alg: "EdDSA", typ: "JWT", kid: CDP_KEY_ID, nonce })).toString("base64url");
   const payload = Buffer.from(JSON.stringify({
     iss: "cdp",
@@ -45,30 +60,11 @@ function buildCdpJwt(method, path) {
     nbf: now,
     exp: now + 120,
     iat: now,
-    uri: `${method} api.cdp.coinbase.com${path}`,
+    uris: [`${method} api.cdp.coinbase.com${path}`], // array, not string
   })).toString("base64url");
+
   const msg = Buffer.from(`${header}.${payload}`);
-  // CDP_API_KEY_SECRET may have literal \n (Vercel env) or real newlines — normalize both
-  const pem = CDP_KEY_SECRET
-    .replace(/\\n/g, "\n")   // literal backslash-n → real newline
-    .replace(/\r\n/g, "\n"); // CRLF → LF
-
-  // Debug: log key shape (never the value) to help diagnose parse errors
-  const firstLine = pem.split("\n")[0];
-  const lineCount = pem.split("\n").length;
-  console.log(`[CDP JWT] key shape: firstLine="${firstLine}", lines=${lineCount}, totalLen=${pem.length}`);
-
-  let privateKey;
-  if (pem.includes("BEGIN")) {
-    privateKey = createPrivateKey({ key: pem, format: "pem" });
-  } else {
-    // Raw base64 Ed25519 private key (32 bytes) — wrap as DER seed
-    const raw = Buffer.from(pem.trim(), "base64");
-    // Ed25519 PKCS#8 DER prefix (RFC 8410)
-    const der = Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), raw]);
-    privateKey = createPrivateKey({ key: der, format: "der", type: "pkcs8" });
-  }
-  const sigBuf = sign(null, msg, privateKey); // null = use key's own algorithm (Ed25519)
+  const sigBuf = sign(null, msg, privateKey);
   return `${header}.${payload}.${sigBuf.toString("base64url")}`;
 }
 
