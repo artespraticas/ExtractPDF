@@ -101,7 +101,8 @@ async function verifyPayment(header) {
 async function fetchBuffer(url) {
   const r = await fetch(url, {
     headers: { "User-Agent": "ExtractPDF/1.0 (+https://www.extractpdf.xyz)" },
-    signal: AbortSignal.timeout(8000),
+    redirect: "follow",
+    signal: AbortSignal.timeout(15000),
   });
   if (!r.ok) throw new Error(`Fetch failed: ${r.status}`);
   const buf = await r.arrayBuffer();
