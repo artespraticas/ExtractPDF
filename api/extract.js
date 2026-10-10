@@ -38,7 +38,9 @@ async function verifyPayment(header) {
 
   // Log structure for debugging (no sensitive values)
   console.log("PAYMENT_KEYS:", Object.keys(payload).join(","));
+  console.log("PAYMENT_VERSION:", payload.x402Version ?? "none");
   console.log("PAYMENT_NETWORK:", payload.network ?? payload.networkId ?? payload.chain ?? "none");
+  console.log("PAYMENT_PAYLOAD_KEYS:", payload.payload ? Object.keys(payload.payload).join(",") : "no payload field");
 
   const { scheme, network, payload: p } = payload;
   const chain = CHAINS[network];
