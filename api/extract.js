@@ -144,6 +144,21 @@ async function extractContent(url, base64Content, format) {
   };
 }
 
+// Pre-built 402 response — shared by GET probe and POST no-payment path
+const acceptsForHeader = accepts.filter(a => a.network === "eip155:8453");
+const header402 = {
+  x402Version: 2,
+  resource: { url: RESOURCE_URL, method: "POST", description: "PDF and document text extraction", mimeType: "application/json" },
+  accepts: acceptsForHeader,
+};
+const header402Encoded = Buffer.from(JSON.stringify(header402)).toString("base64");
+const paymentRequired = {
+  x402Version: 2,
+  error: "Payment required",
+  resource: { url: RESOURCE_URL, description: "PDF and document text extraction — $0.005 per request", mimeType: "application/json" },
+  accepts,
+};
+
 // Express app
 const app = express();
 app.use(express.json({ limit: "10mb" }));
@@ -155,15 +170,11 @@ app.use((req, res, next) => {
   next();
 });
 
-// Health check (free)
+// GET always returns 402 so agents discover the payment requirement on probe
 app.get("*", (req, res) => {
-  res.json({
-    service: "ExtractPDF",
-    description: "PDF and DOCX text extraction for AI agents",
-    price: "$0.005 USDC per request",
-    usage: 'POST /api/extract with {"url":"https://..."} or {"base64":"...","format":"pdf|docx"}',
-    chains: Object.keys(CHAINS),
-  });
+  res.setHeader("Payment-Required", header402Encoded);
+  res.setHeader("WWW-Authenticate", `MPP realm="${RESOURCE_URL}", price="0.005", currency="USD"`);
+  return res.status(402).json(paymentRequired);
 });
 
 // Paid extraction endpoint
@@ -171,21 +182,9 @@ app.post("*", async (req, res) => {
   const paymentHeader = req.headers["x-payment"] ?? req.headers["payment-signature"];
 
   if (!paymentHeader) {
-    // AgentCash reads the Payment-Required header (base64). Only Base in the header.
-    const acceptsForHeader = accepts.filter(a => a.network === "eip155:8453");
-    const header402 = {
-      x402Version: 2,
-      resource: { url: RESOURCE_URL, method: "POST", description: "PDF and document text extraction", mimeType: "application/json" },
-      accepts: acceptsForHeader,
-    };
-    res.setHeader("Payment-Required", Buffer.from(JSON.stringify(header402)).toString("base64"));
+    res.setHeader("Payment-Required", header402Encoded);
     res.setHeader("WWW-Authenticate", `MPP realm="${RESOURCE_URL}", price="0.005", currency="USD"`);
-    return res.status(402).json({
-      x402Version: 2,
-      error: "Payment required",
-      resource: { url: RESOURCE_URL, description: "PDF and document text extraction — $0.005 per request", mimeType: "application/json" },
-      accepts,
-    });
+    return res.status(402).json(paymentRequired);
   }
 
   const verification = await verifyPayment(paymentHeader);
