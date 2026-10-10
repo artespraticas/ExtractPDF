@@ -162,7 +162,7 @@ async function fetchBuffer(url) {
     redirect: "follow",
     signal: AbortSignal.timeout(15000),
   });
-  if (!r.ok) throw new Error(`Fetch failed: ${r.status}`);
+  if (!r.ok && r.status !== 300) throw new Error(`Fetch failed: ${r.status}`);
   const buf = await r.arrayBuffer();
   return { buffer: Buffer.from(buf), contentType: r.headers.get("content-type") || "" };
 }
