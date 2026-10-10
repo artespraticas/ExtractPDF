@@ -1,7 +1,9 @@
 import express from "express";
 import pdfParse from "pdf-parse/lib/pdf-parse.js";
 import mammoth from "mammoth";
-import { recoverTypedDataAddress, getAddress } from "viem";
+import { recoverTypedDataAddress, getAddress, createWalletClient, createPublicClient, http } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { base } from "viem/chains";
 
 const WALLET = (process.env.WALLET_ADDRESS ?? "").toLowerCase();
 if (!WALLET) throw new Error("WALLET_ADDRESS env var required");
@@ -94,6 +96,62 @@ async function verifyPayment(header) {
     return { ok: true, from: auth.from, network, amount: auth.value };
   } catch (err) {
     return { ok: false, error: err?.message ?? String(err) };
+  }
+}
+
+// On-chain settlement — broadcasts receiveWithAuthorization on Base USDC
+const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+const RECEIVE_WITH_AUTH_ABI = [{
+  name: "receiveWithAuthorization",
+  type: "function",
+  stateMutability: "nonpayable",
+  inputs: [
+    { name: "from",        type: "address" },
+    { name: "to",          type: "address" },
+    { name: "value",       type: "uint256" },
+    { name: "validAfter",  type: "uint256" },
+    { name: "validBefore", type: "uint256" },
+    { name: "nonce",       type: "bytes32" },
+    { name: "v",           type: "uint8"   },
+    { name: "r",           type: "bytes32" },
+    { name: "s",           type: "bytes32" },
+  ],
+  outputs: [],
+}];
+
+async function settlePayment(auth, signature) {
+  const pk = process.env.SETTLER_PRIVATE_KEY;
+  if (!pk) { console.warn("SETTLER_PRIVATE_KEY not set — skipping settlement"); return; }
+  try {
+    const account = privateKeyToAccount(pk);
+    const walletClient = createWalletClient({ account, chain: base, transport: http() });
+    const publicClient = createPublicClient({ chain: base, transport: http() });
+
+    // Split compact 65-byte signature into v/r/s
+    const sig = signature.startsWith("0x") ? signature : `0x${signature}`;
+    const r = sig.slice(0, 66);
+    const s = `0x${sig.slice(66, 130)}`;
+    const v = parseInt(sig.slice(130, 132), 16);
+
+    const { request } = await publicClient.simulateContract({
+      address: USDC_BASE,
+      abi: RECEIVE_WITH_AUTH_ABI,
+      functionName: "receiveWithAuthorization",
+      args: [
+        getAddress(auth.from),
+        getAddress(auth.to),
+        BigInt(auth.value),
+        BigInt(auth.validAfter),
+        BigInt(auth.validBefore),
+        auth.nonce,
+        v, r, s,
+      ],
+      account,
+    });
+    const txHash = await walletClient.writeContract(request);
+    console.log("Settlement tx:", txHash);
+  } catch (err) {
+    console.error("Settlement error (non-fatal):", err.message);
   }
 }
 
@@ -198,6 +256,14 @@ app.post("*", async (req, res) => {
       resource: { url: RESOURCE_URL, description: "PDF and document text extraction" },
       accepts,
     });
+  }
+
+  // Fire-and-forget on-chain settlement (non-blocking)
+  const rawPayload = JSON.parse(Buffer.from(paymentHeader, "base64").toString("utf8"));
+  const auth = rawPayload?.payload?.authorization;
+  const sig  = rawPayload?.payload?.signature;
+  if (auth && sig && verification.network === "eip155:8453") {
+    settlePayment(auth, sig).catch(e => console.error("settle:", e.message));
   }
 
   const { url, base64, format } = req.body || {};
