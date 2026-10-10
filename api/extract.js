@@ -42,7 +42,9 @@ async function verifyPayment(header) {
   if (safe?.authorization?.signature) safe.authorization.signature = "[redacted]";
   console.log("PAYMENT_DUMP:", JSON.stringify(safe));
 
-  const { scheme, network, payload: p } = payload;
+  const scheme  = payload.scheme  ?? payload.accepted?.scheme;
+  const network = payload.network ?? payload.accepted?.network;
+  const p       = payload.payload ?? payload;
   const chain = CHAINS[network];
   if (!chain) return { ok: false, error: `Unsupported network: ${network}` };
   if (scheme !== "exact") return { ok: false, error: `Unsupported scheme: ${scheme}` };
