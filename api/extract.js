@@ -150,8 +150,7 @@ async function settlePayment(auth, signature) {
     });
     const txHash = await walletClient.writeContract(request);
     console.log("Settlement tx:", txHash);
-  } catch (err) {
-    console.error("Settlement error (non-fatal):", err.message);
+    return txHash;
   }
 }
 
@@ -258,12 +257,19 @@ app.post("*", async (req, res) => {
     });
   }
 
-  // Fire-and-forget on-chain settlement (non-blocking)
+  // On-chain settlement — await so errors surface in response
   const rawPayload = JSON.parse(Buffer.from(paymentHeader, "base64").toString("utf8"));
   const auth = rawPayload?.payload?.authorization;
   const sig  = rawPayload?.payload?.signature;
+  let settlementTx = null;
+  let settlementError = null;
   if (auth && sig && verification.network === "eip155:8453") {
-    settlePayment(auth, sig).catch(e => console.error("settle:", e.message));
+    try {
+      settlementTx = await settlePayment(auth, sig);
+    } catch (e) {
+      settlementError = e.message;
+      console.error("Settlement failed:", e.message);
+    }
   }
 
   const { url, base64, format } = req.body || {};
@@ -273,7 +279,14 @@ app.post("*", async (req, res) => {
 
   try {
     const result = await extractContent(url, base64, format);
-    return res.json({ url: url || null, ...result, scraped_at: new Date().toISOString() });
+    return res.json({
+      url: url || null,
+      ...result,
+      scraped_at: new Date().toISOString(),
+      settlement: settlementTx
+        ? { tx: settlementTx, network: "base" }
+        : { error: settlementError ?? "skipped" },
+    });
   } catch (err) {
     console.error("Extraction error:", err.message);
     return res.status(500).json({ error: "Extraction failed", detail: err.message });
