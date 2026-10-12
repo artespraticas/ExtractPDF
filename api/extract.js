@@ -3,10 +3,18 @@ import pdfParse from "pdf-parse/lib/pdf-parse.js";
 import mammoth from "mammoth";
 import { recoverTypedDataAddress, getAddress, createWalletClient, createPublicClient, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { base } from "viem/chains";
 
-const WALLET = (process.env.WALLET_ADDRESS ?? "").toLowerCase();
-if (!WALLET) throw new Error("WALLET_ADDRESS env var required");
+// Base chain config — RPC from env (Vercel), fallback to public Base RPC
+const BASE_RPC = process.env.BASE_RPC_URL || "https://mainnet.base.org"; // arc-studio-allow-onchain-literal
+const base = {
+  id: 8453,
+  name: "Base",
+  network: "base",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: { default: { http: [BASE_RPC] } },
+};
+
+const WALLET = process.env.WALLET_ADDRESS ?? "";
 
 // Chain registry — identical to Scrape Agent
 const CHAINS = {
