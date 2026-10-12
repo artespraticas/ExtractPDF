@@ -1,12 +1,19 @@
 import express from "express";
 import pdfParse from "pdf-parse/lib/pdf-parse.js";
 import mammoth from "mammoth";
-import { recoverTypedDataAddress, getAddress, createWalletClient, createPublicClient, http } from "viem";
+import {
+  recoverTypedDataAddress,
+  getAddress,
+  createWalletClient,
+  createPublicClient,
+  http,
+} from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
-// Base chain config — RPC from env (Vercel), fallback to public Base RPC
-const BASE_RPC = process.env.BASE_RPC_URL || "https://mainnet.base.org"; // arc-studio-allow-onchain-literal
-const base = {
+// ── Chain config ─────────────────────────────────────────────────────────────
+
+const BASE_RPC = process.env.BASE_RPC_URL ?? "https://mainnet.base.org"; // arc-studio-allow-onchain-literal
+const baseChain = {
   id: 8453,
   name: "Base",
   network: "base",
@@ -14,17 +21,17 @@ const base = {
   rpcUrls: { default: { http: [BASE_RPC] } },
 };
 
-const WALLET = process.env.WALLET_ADDRESS ?? "";
-
-// Chain registry — identical to Scrape Agent
 const CHAINS = {
-  "eip155:8453": { chainId: 8453, usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", name: "USD Coin", version: "2" },
-  "eip155:5042": { chainId: 5042, usdc: "0x3600000000000000000000000000000000000000", name: "USD Coin", version: "2" },
-  "eip155:137":  { chainId: 137,  usdc: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", name: "USD Coin", version: "2" },
+  "eip155:8453": { chainId: 8453, usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", name: "USD Coin", version: "2" }, // arc-studio-allow-onchain-literal
+  "eip155:5042": { chainId: 5042, usdc: "0x3600000000000000000000000000000000000000", name: "USD Coin", version: "2" }, // arc-studio-allow-onchain-literal
+  "eip155:137":  { chainId: 137,  usdc: "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359", name: "USD Coin", version: "2" }, // arc-studio-allow-onchain-literal
 };
 
-const AMOUNT = "5000"; // $0.005 — 6-decimal USDC
+const AMOUNT       = "5000"; // $0.005 USDC (6 decimals)
 const RESOURCE_URL = "https://www.extractpdf.xyz/api/extract";
+const WALLET       = (process.env.WALLET_ADDRESS ?? "").toLowerCase();
+
+// ── 402 response objects ─────────────────────────────────────────────────────
 
 const accepts = Object.entries(CHAINS).map(([network, c]) => ({
   scheme: "exact",
@@ -37,7 +44,29 @@ const accepts = Object.entries(CHAINS).map(([network, c]) => ({
   extra: { name: c.name, version: c.version, assetTransferMethod: "eip3009" },
 }));
 
-// Self-verify EIP-712 TransferWithAuthorization — same pattern as Scrape Agent
+// AgentCash reads Payment-Required header — Base only in header, all chains in body
+const headerAccepts = accepts.filter(a => a.network === "eip155:8453");
+const paymentRequiredHeader = Buffer.from(JSON.stringify({
+  x402Version: 2,
+  resource: { url: RESOURCE_URL, method: "POST", description: "PDF and document text extraction", mimeType: "application/json" },
+  accepts: headerAccepts,
+})).toString("base64");
+
+const paymentRequiredBody = {
+  x402Version: 2,
+  error: "Payment required",
+  resource: { url: RESOURCE_URL, description: "PDF and document text extraction — $0.005 per request", mimeType: "application/json" },
+  accepts,
+};
+
+function send402(res) {
+  res.setHeader("Payment-Required", paymentRequiredHeader);
+  res.setHeader("WWW-Authenticate", `MPP realm="${RESOURCE_URL}", price="0.005", currency="USD"`);
+  return res.status(402).json(paymentRequiredBody);
+}
+
+// ── Payment verification (EIP-3009 self-verify with viem) ────────────────────
+
 async function verifyPayment(header) {
   let payload;
   try {
@@ -46,21 +75,17 @@ async function verifyPayment(header) {
     return { ok: false, error: "Invalid payment header encoding" };
   }
 
-  // Log full structure (redact signature only)
-  const safe = JSON.parse(JSON.stringify(payload));
-  if (safe?.payload?.signature) safe.payload.signature = "[redacted]";
-  if (safe?.authorization?.signature) safe.authorization.signature = "[redacted]";
-  console.log("PAYMENT_DUMP:", JSON.stringify(safe));
-
+  // AgentCash sends: { x402Version, scheme, network, payload: {authorization, signature}, accepted, resource }
   const scheme  = payload.scheme  ?? payload.accepted?.scheme;
   const network = payload.network ?? payload.accepted?.network;
-  const p       = payload.payload ?? payload;
-  const chain = CHAINS[network];
-  if (!chain) return { ok: false, error: `Unsupported network: ${network}` };
-  if (scheme !== "exact") return { ok: false, error: `Unsupported scheme: ${scheme}` };
+  const inner   = payload.payload ?? {};
+  const auth    = inner.authorization ?? payload.authorization;
+  const sig     = inner.signature     ?? payload.signature;
 
-  const { signature, authorization: auth } = p ?? {};
-  if (!signature || !auth) return { ok: false, error: "Missing signature or authorization" };
+  const chain = CHAINS[network];
+  if (!chain)  return { ok: false, error: `Unsupported network: ${network}` };
+  if (scheme !== "exact") return { ok: false, error: `Unsupported scheme: ${scheme}` };
+  if (!sig || !auth) return { ok: false, error: "Missing signature or authorization" };
 
   try {
     const domain = {
@@ -92,24 +117,24 @@ async function verifyPayment(header) {
     if (now < message.validAfter)  return { ok: false, error: "Payment not yet valid" };
     if (now > message.validBefore) return { ok: false, error: "Payment expired" };
     if (BigInt(auth.value) < BigInt(AMOUNT)) return { ok: false, error: "Insufficient payment amount" };
-    if (auth.to.toLowerCase() !== WALLET) return { ok: false, error: "Wrong payment recipient" };
+    if (WALLET && auth.to.toLowerCase() !== WALLET) return { ok: false, error: "Wrong payment recipient" };
 
     const recovered = await recoverTypedDataAddress({
-      domain, types, primaryType: "TransferWithAuthorization", message, signature,
+      domain, types, primaryType: "TransferWithAuthorization", message, signature: sig,
     });
     if (recovered.toLowerCase() !== auth.from.toLowerCase()) {
       return { ok: false, error: "Signature mismatch" };
     }
 
-    return { ok: true, from: auth.from, network, amount: auth.value };
+    return { ok: true, network, auth, sig };
   } catch (err) {
     return { ok: false, error: err?.message ?? String(err) };
   }
 }
 
-// On-chain settlement — broadcasts receiveWithAuthorization on Base USDC
-const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
-const RECEIVE_WITH_AUTH_ABI = [{
+// ── On-chain settlement (receiveWithAuthorization on Base USDC) ──────────────
+
+const USDC_BASE_ABI = [{
   name: "receiveWithAuthorization",
   type: "function",
   stateMutability: "nonpayable",
@@ -127,56 +152,62 @@ const RECEIVE_WITH_AUTH_ABI = [{
   outputs: [],
 }];
 
-async function settlePayment(auth, signature) {
+async function settlePayment(auth, sig) {
   const pk = process.env.SETTLER_PRIVATE_KEY;
-  if (!pk) { console.warn("SETTLER_PRIVATE_KEY not set — skipping settlement"); return; }
-  try {
-    const account = privateKeyToAccount(pk);
-    const walletClient = createWalletClient({ account, chain: base, transport: http() });
-    const publicClient = createPublicClient({ chain: base, transport: http() });
-
-    // Split compact 65-byte signature into v/r/s
-    const sig = signature.startsWith("0x") ? signature : `0x${signature}`;
-    const r = sig.slice(0, 66);
-    const s = `0x${sig.slice(66, 130)}`;
-    const v = parseInt(sig.slice(130, 132), 16);
-
-    const { request } = await publicClient.simulateContract({
-      address: USDC_BASE,
-      abi: RECEIVE_WITH_AUTH_ABI,
-      functionName: "receiveWithAuthorization",
-      args: [
-        getAddress(auth.from),
-        getAddress(auth.to),
-        BigInt(auth.value),
-        BigInt(auth.validAfter),
-        BigInt(auth.validBefore),
-        auth.nonce,
-        v, r, s,
-      ],
-      account,
-    });
-    const txHash = await walletClient.writeContract(request);
-    console.log("Settlement tx:", txHash);
-    return txHash;
+  if (!pk) {
+    console.warn("SETTLER_PRIVATE_KEY not set — skipping settlement");
+    return { skipped: true };
   }
+
+  const account = privateKeyToAccount(pk);
+  const transport = http(BASE_RPC);
+  const walletClient = createWalletClient({ account, chain: baseChain, transport });
+  const publicClient = createPublicClient({ chain: baseChain, transport });
+
+  // Split compact 65-byte hex signature into v/r/s
+  const hexSig = sig.startsWith("0x") ? sig : `0x${sig}`;
+  const r = `0x${hexSig.slice(2, 66)}`;
+  const s = `0x${hexSig.slice(66, 130)}`;
+  const v = parseInt(hexSig.slice(130, 132), 16);
+
+  const usdcAddress = getAddress(CHAINS["eip155:8453"].usdc);
+
+  const { request } = await publicClient.simulateContract({
+    address: usdcAddress,
+    abi: USDC_BASE_ABI,
+    functionName: "receiveWithAuthorization",
+    args: [
+      getAddress(auth.from),
+      getAddress(auth.to),
+      BigInt(auth.value),
+      BigInt(auth.validAfter),
+      BigInt(auth.validBefore),
+      auth.nonce,
+      v, r, s,
+    ],
+    account,
+  });
+
+  const txHash = await walletClient.writeContract(request);
+  console.log("Settlement tx:", txHash);
+  return { tx: txHash, network: "base" };
 }
 
-// Extraction helpers
+// ── PDF / DOCX extraction ────────────────────────────────────────────────────
+
 async function fetchBuffer(url) {
   const r = await fetch(url, {
     headers: { "User-Agent": "ExtractPDF/1.0 (+https://www.extractpdf.xyz)" },
     redirect: "follow",
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(20000),
   });
-  if (!r.ok && r.status !== 300) throw new Error(`Fetch failed: ${r.status}`);
+  if (!r.ok) throw new Error(`Fetch failed: ${r.status}`);
   const buf = await r.arrayBuffer();
-  return { buffer: Buffer.from(buf), contentType: r.headers.get("content-type") || "" };
+  return { buffer: Buffer.from(buf), contentType: r.headers.get("content-type") ?? "" };
 }
 
 async function extractContent(url, base64Content, format) {
   let buffer, contentType = "";
-
   if (base64Content) {
     buffer = Buffer.from(base64Content, "base64");
   } else {
@@ -185,12 +216,11 @@ async function extractContent(url, base64Content, format) {
     contentType = result.contentType;
   }
 
-  const fmt = format || (
-    contentType.includes("pdf") ? "pdf"
-    : contentType.includes("word") || contentType.includes("docx") ? "docx"
-    : url?.toLowerCase().endsWith(".docx") ? "docx"
-    : "pdf"
-  );
+  const fmt = format
+    ?? (contentType.includes("pdf") ? "pdf"
+      : contentType.includes("word") || contentType.includes("docx") ? "docx"
+      : url?.toLowerCase().endsWith(".docx") ? "docx"
+      : "pdf");
 
   if (fmt === "docx") {
     const result = await mammoth.extractRawText({ buffer });
@@ -199,35 +229,22 @@ async function extractContent(url, base64Content, format) {
   }
 
   const data = await pdfParse(buffer);
+  const text = data.text.trim();
   return {
     format: "pdf",
-    text: data.text.trim().slice(0, 50000),
-    length: data.text.trim().length,
+    text: text.slice(0, 50000),
+    length: text.length,
     pages: data.numpages,
     info: {
-      title: data.info?.Title || null,
-      author: data.info?.Author || null,
-      subject: data.info?.Subject || null,
+      title:   data.info?.Title   ?? null,
+      author:  data.info?.Author  ?? null,
+      subject: data.info?.Subject ?? null,
     },
   };
 }
 
-// Pre-built 402 response — shared by GET probe and POST no-payment path
-const acceptsForHeader = accepts.filter(a => a.network === "eip155:8453");
-const header402 = {
-  x402Version: 2,
-  resource: { url: RESOURCE_URL, method: "POST", description: "PDF and document text extraction", mimeType: "application/json" },
-  accepts: acceptsForHeader,
-};
-const header402Encoded = Buffer.from(JSON.stringify(header402)).toString("base64");
-const paymentRequired = {
-  x402Version: 2,
-  error: "Payment required",
-  resource: { url: RESOURCE_URL, description: "PDF and document text extraction — $0.005 per request", mimeType: "application/json" },
-  accepts,
-};
+// ── Express app ──────────────────────────────────────────────────────────────
 
-// Express app
 const app = express();
 app.use(express.json({ limit: "10mb" }));
 app.use((req, res, next) => {
@@ -238,63 +255,43 @@ app.use((req, res, next) => {
   next();
 });
 
-// GET always returns 402 so agents discover the payment requirement on probe
-app.get("*", (req, res) => {
-  res.setHeader("Payment-Required", header402Encoded);
-  res.setHeader("WWW-Authenticate", `MPP realm="${RESOURCE_URL}", price="0.005", currency="USD"`);
-  return res.status(402).json(paymentRequired);
-});
+// GET: agents probe with GET first — always return 402 so they discover payment requirement
+app.get("*", (_req, res) => send402(res));
 
-// Paid extraction endpoint
+// POST: paid extraction
 app.post("*", async (req, res) => {
-  const paymentHeader = req.headers["x-payment"] ?? req.headers["payment-signature"];
+  const paymentHeader = req.headers["payment-signature"] ?? req.headers["x-payment"];
+  if (!paymentHeader) return send402(res);
 
-  if (!paymentHeader) {
-    res.setHeader("Payment-Required", header402Encoded);
-    res.setHeader("WWW-Authenticate", `MPP realm="${RESOURCE_URL}", price="0.005", currency="USD"`);
-    return res.status(402).json(paymentRequired);
-  }
-
+  // 1. Verify signature
   const verification = await verifyPayment(paymentHeader);
   if (!verification.ok) {
+    console.error("Verification failed:", verification.error);
     return res.status(402).json({
       x402Version: 2,
-      error: verification.error,
+      error: `Payment verification failed: ${verification.error}`,
       resource: { url: RESOURCE_URL, description: "PDF and document text extraction" },
       accepts,
     });
   }
 
-  // On-chain settlement — await so errors surface in response
-  const rawPayload = JSON.parse(Buffer.from(paymentHeader, "base64").toString("utf8"));
-  const auth = rawPayload?.payload?.authorization;
-  const sig  = rawPayload?.payload?.signature;
-  let settlementTx = null;
-  let settlementError = null;
-  if (auth && sig && verification.network === "eip155:8453") {
-    try {
-      settlementTx = await settlePayment(auth, sig);
-    } catch (e) {
-      settlementError = e.message;
-      console.error("Settlement failed:", e.message);
-    }
+  // 2. Settle on-chain (Base only — fire-and-forget so extraction isn't delayed)
+  let settlement = { skipped: true };
+  if (verification.network === "eip155:8453") {
+    settlePayment(verification.auth, verification.sig)
+      .then(r => { settlement = r; console.log("Settled:", JSON.stringify(r)); })
+      .catch(e => console.error("Settlement error:", e.message));
   }
 
-  const { url, base64, format } = req.body || {};
+  // 3. Extract content
+  const { url, base64, format } = req.body ?? {};
   if (!url && !base64) {
     return res.status(400).json({ error: "Missing required field: url or base64" });
   }
 
   try {
     const result = await extractContent(url, base64, format);
-    return res.json({
-      url: url || null,
-      ...result,
-      scraped_at: new Date().toISOString(),
-      settlement: settlementTx
-        ? { tx: settlementTx, network: "base" }
-        : { error: settlementError ?? "skipped" },
-    });
+    return res.json({ url: url ?? null, ...result, scraped_at: new Date().toISOString() });
   } catch (err) {
     console.error("Extraction error:", err.message);
     return res.status(500).json({ error: "Extraction failed", detail: err.message });
