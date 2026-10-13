@@ -3,10 +3,14 @@
   "version": "1.0.0",
   "type": "module",
   "description": "Pay-per-use PDF and document extraction API for AI agents",
+  "engines": { "node": ">=22" },
   "dependencies": {
+    "@coinbase/cdp-sdk": "^1.58.0",
+    "@x402/core": "^2.28.0",
+    "@x402/evm": "^2.28.0",
+    "@x402/express": "^2.28.0",
     "express": "^4.18.0",
     "mammoth": "^1.6.0",
-    "pdf-parse": "^1.1.1",
-    "viem": "^2.0.0"
+    "pdf-parse": "^1.1.1"
   }
 }
