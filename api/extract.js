@@ -118,8 +118,8 @@ async function verifyPayment(rawHeader) {
 // ---------------------------------------------------------------------------
 // Settle on-chain via receiveWithAuthorization
 // ---------------------------------------------------------------------------
-const RECEIVE_WITH_AUTH_ABI = [{
-  name: 'receiveWithAuthorization', type: 'function', stateMutability: 'nonpayable',
+const TRANSFER_WITH_AUTH_ABI = [{
+  name: 'transferWithAuthorization', type: 'function', stateMutability: 'nonpayable',
   inputs: [
     { name: 'from', type: 'address' }, { name: 'to', type: 'address' },
     { name: 'value', type: 'uint256' }, { name: 'validAfter', type: 'uint256' },
@@ -144,7 +144,7 @@ async function settlePayment(auth, sig, asset) {
     const v = sigBytes[64];
 
     const { request } = await publicClient.simulateContract({
-      address: asset, abi: RECEIVE_WITH_AUTH_ABI, functionName: 'receiveWithAuthorization',
+      address: asset, abi: TRANSFER_WITH_AUTH_ABI, functionName: 'transferWithAuthorization',
       args: [auth.from, auth.to, BigInt(auth.value), BigInt(auth.validAfter), BigInt(auth.validBefore), auth.nonce, v, r, s],
       account,
     });
