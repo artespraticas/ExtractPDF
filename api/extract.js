@@ -206,8 +206,8 @@ app.post('/api/extract', async (req, res) => {
   try { verified = await verifyPayment(paymentHeader); }
   catch (err) { return send402(res, `Payment verification failed: ${err.message}`); }
 
-  // Fire-and-forget settlement — response does not wait for tx confirmation
-  settlePayment(verified.auth, verified.sig, verified.asset).catch(() => {});
+  // Blocking settlement — wait for tx so we can return the hash
+  const settleTx = await settlePayment(verified.auth, verified.sig, verified.asset);
 
   const { url } = req.body || {};
   if (!url) return res.status(400).json({ error: 'url required' });
@@ -217,7 +217,7 @@ app.post('/api/extract', async (req, res) => {
 
     if (isPdf(url, contentType)) {
       const data = await pdfParse(buf);
-      return res.json({ url, format: 'pdf', text: data.text, length: data.text.length, pages: data.numpages, info: { title: data.info?.Title || null, author: data.info?.Author || null, subject: data.info?.Subject || null }, scraped_at: new Date().toISOString() });
+      return res.json({ url, format: 'pdf', text: data.text, length: data.text.length, pages: data.numpages, info: { title: data.info?.Title || null, author: data.info?.Author || null, subject: data.info?.Subject || null }, scraped_at: new Date().toISOString(), settlement_tx: settleTx });
     }
     if (isDocx(url, contentType)) {
       const result = await mammoth.extractRawText({ buffer: buf });
