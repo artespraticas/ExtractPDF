@@ -1,157 +1,169 @@
-import express from "express";
-import { createX402Server } from "@coinbase/cdp-sdk/x402";
-import { paymentMiddlewareFromHTTPServer } from "@x402/express";
-import pdfParse from "pdf-parse/lib/pdf-parse.js";
-import mammoth from "mammoth";
+import express from 'express';
+import cors from 'cors';
+import crypto from 'node:crypto';
+import { Buffer } from 'node:buffer';
+import pdfParse from 'pdf-parse/lib/pdf-parse.js';
+import mammoth from 'mammoth';
+import { paymentMiddlewareFromConfig } from '@x402/express';
+import { HTTPFacilitatorClient } from '@x402/core/http';
 
-// ── Express app ───────────────────────────────────────────────────────────────
-
-const app = express();
-app.use(express.json({ limit: "10mb" }));
-app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-PAYMENT, PAYMENT-SIGNATURE, Accept");
-  if (req.method === "OPTIONS") return res.status(204).end();
-  next();
-});
-
-// ── x402 payment middleware (CDP facilitator — verifies AND settles on-chain) ─
-
-const WALLET_ADDRESS = process.env.WALLET_ADDRESS;
-if (!WALLET_ADDRESS) throw new Error("WALLET_ADDRESS env var required");
-
-// createX402Server is async — we initialise once and reuse across warm invocations
-let x402Middleware;
-async function getMiddleware() {
-  if (x402Middleware) return x402Middleware;
-  const server = await createX402Server({
-    cdpApiKeyId:     process.env.CDP_API_KEY_ID,
-    cdpApiKeySecret: process.env.CDP_API_KEY_SECRET,
-    environment: "production", // Base mainnet
-    payToConfig: {
-      type: "address",
-      evm: WALLET_ADDRESS,
-    },
-    routes: {
-      "POST /api/extract": {
-        price: "$0.005",
-        networks: ["eip155:8453"], // Base mainnet
-        description: "PDF and DOCX text extraction — $0.005 per request",
-        mimeType: "application/json",
-      },
-    },
-  });
-  x402Middleware = paymentMiddlewareFromHTTPServer(server);
-  return x402Middleware;
-}
-
-// Lazy-init middleware — runs once on first request, reused on warm Lambda
-app.use(async (req, res, next) => {
-  // Always let OPTIONS and GET through to our own handlers
-  if (req.method === "OPTIONS" || req.method === "GET") return next();
-  try {
-    const mw = await getMiddleware();
-    mw(req, res, next);
-  } catch (err) {
-    console.error("x402 middleware init error:", err.message);
-    return res.status(500).json({ error: "Payment middleware unavailable", detail: err.message });
-  }
-});
-
-// ── PDF / DOCX extraction ─────────────────────────────────────────────────────
-
-async function fetchBuffer(url) {
-  const r = await fetch(url, {
-    headers: { "User-Agent": "ExtractPDF/1.0 (+https://www.extractpdf.xyz)" },
-    redirect: "follow",
-    signal: AbortSignal.timeout(20000),
-  });
-  // Accept any 2xx or 300 (w3.org Multiple Choices returns the PDF body)
-  if (!r.ok && r.status !== 300) throw new Error(`Fetch failed: ${r.status}`);
-  const buf = await r.arrayBuffer();
-  return { buffer: Buffer.from(buf), contentType: r.headers.get("content-type") ?? "" };
-}
-
-async function extractContent(url, base64Content, format) {
-  let buffer, contentType = "";
-  if (base64Content) {
-    buffer = Buffer.from(base64Content, "base64");
-  } else {
-    const result = await fetchBuffer(url);
-    buffer = result.buffer;
-    contentType = result.contentType;
-  }
-
-  const fmt = format
-    ?? (contentType.includes("pdf") ? "pdf"
-      : contentType.includes("word") || contentType.includes("docx") ? "docx"
-      : url?.toLowerCase().endsWith(".docx") ? "docx"
-      : "pdf");
-
-  if (fmt === "docx") {
-    const result = await mammoth.extractRawText({ buffer });
-    const text = result.value.trim();
-    return { format: "docx", text, length: text.length };
-  }
-
-  const data = await pdfParse(buffer);
-  const text = data.text.trim();
-  return {
-    format: "pdf",
-    text: text.slice(0, 50000),
-    length: text.length,
-    pages: data.numpages,
-    info: {
-      title:   data.info?.Title   ?? null,
-      author:  data.info?.Author  ?? null,
-      subject: data.info?.Subject ?? null,
-    },
+// ---------------------------------------------------------------------------
+// CDP Ed25519 JWT builder — creates an auth header for the CDP facilitator
+// ---------------------------------------------------------------------------
+function buildCdpJwt(keyId, pemSecret, path) {
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: 'EdDSA', kid: keyId, typ: 'JWT', nonce: crypto.randomBytes(16).toString('hex') };
+  const payload = {
+    iss: 'cdp',
+    sub: keyId,
+    nbf: now,
+    exp: now + 120,
+    uris: [`POST api.cdp.coinbase.com/platform/x402/v1/${path}`],
   };
+
+  const enc = (obj) => Buffer.from(JSON.stringify(obj)).toString('base64url');
+  const signingInput = `${enc(header)}.${enc(payload)}`;
+
+  // Normalise PEM — Vercel stores multiline as literal \n
+  const pem = pemSecret.replace(/\\n/g, '\n');
+  const keyObj = crypto.createPrivateKey({ key: pem, format: 'pem' });
+  const sig = crypto.sign(null, Buffer.from(signingInput), keyObj);
+  return `${signingInput}.${sig.toString('base64url')}`;
 }
 
-// ── Routes ───────────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// Facilitator client pointing at CDP (Base mainnet)
+// ---------------------------------------------------------------------------
+const cdpKeyId = process.env.CDP_API_KEY_ID;
+const cdpSecret = process.env.CDP_API_KEY_SECRET;
+const payTo = process.env.WALLET_ADDRESS;
 
-// GET: return 402 so AgentCash probe discovers payment requirement
-app.get("*", async (req, res) => {
+if (!payTo) throw new Error('WALLET_ADDRESS env var required');
+
+const facilitator = new HTTPFacilitatorClient({
+  url: 'https://api.cdp.coinbase.com/platform/x402/v1',
+  createAuthHeaders: async (path) => {
+    if (!cdpKeyId || !cdpSecret) return { headers: {} };
+    const jwt = buildCdpJwt(cdpKeyId, cdpSecret, path);
+    return { headers: { Authorization: `Bearer ${jwt}` } };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Payment middleware — Base mainnet only (what AgentCash supports)
+// ---------------------------------------------------------------------------
+const paymentRoutes = [
+  {
+    path: '/api/extract',
+    method: 'POST',
+    price: '$0.005',
+    payTo,
+    network: 'base',
+    description: 'PDF and DOCX text extraction',
+  },
+];
+
+const paymentMiddleware = paymentMiddlewareFromConfig(paymentRoutes, [facilitator]);
+
+// ---------------------------------------------------------------------------
+// Extraction helpers
+// ---------------------------------------------------------------------------
+async function fetchDocument(url) {
+  const res = await fetch(url, { redirect: 'follow', headers: { 'User-Agent': 'ExtractPDF/1.0' } });
+  if (!res.ok && res.status !== 300) throw new Error(`Fetch failed: ${res.status}`);
+  const buf = await res.arrayBuffer();
+  return { buf: Buffer.from(buf), contentType: res.headers.get('content-type') || '' };
+}
+
+function isPdf(url, contentType) {
+  return contentType.includes('pdf') || url.toLowerCase().endsWith('.pdf');
+}
+
+function isDocx(url, contentType) {
+  return (
+    contentType.includes('wordprocessingml') ||
+    contentType.includes('msword') ||
+    url.toLowerCase().endsWith('.docx') ||
+    url.toLowerCase().endsWith('.doc')
+  );
+}
+
+function stripHtml(html) {
+  return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+// ---------------------------------------------------------------------------
+// Express app
+// ---------------------------------------------------------------------------
+const app = express();
+
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'X-PAYMENT', 'PAYMENT-SIGNATURE', 'Accept'],
+}));
+
+app.use(express.json());
+
+// Apply x402 payment middleware
+app.use(paymentMiddleware);
+
+// Health / discovery on GET — middleware returns 402 automatically
+app.get('/api/extract', (req, res) => {
+  res.json({ service: 'ExtractPDF', price: '$0.005', networks: ['base'] });
+});
+
+// Paid extraction endpoint
+app.post('/api/extract', async (req, res) => {
+  const { url } = req.body || {};
+  if (!url) return res.status(400).json({ error: 'url required' });
+
   try {
-    const mw = await getMiddleware();
-    // Trick: run middleware on a fake POST to get the 402 response shape, then return it
-    // Simpler: just return a static 402 with WWW-Authenticate for score/probe purposes
-    const RESOURCE_URL = "https://www.extractpdf.xyz/api/extract";
-    res.setHeader("WWW-Authenticate", `MPP realm="${RESOURCE_URL}", price="0.005", currency="USD"`);
-    return res.status(402).json({
-      x402Version: 2,
-      error: "Payment required",
-      resource: { url: RESOURCE_URL, description: "PDF and DOCX text extraction" },
-      accepts: [{
-        scheme: "exact",
-        network: "eip155:8453",
-        amount: "5000",
-        maxAmountRequired: "5000",
-        asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // arc-studio-allow-onchain-literal
-        payTo: WALLET_ADDRESS,
-        maxTimeoutSeconds: 300,
-        extra: { name: "USD Coin", version: "2" },
-      }],
+    const { buf, contentType } = await fetchDocument(url);
+
+    if (isPdf(url, contentType)) {
+      const data = await pdfParse(buf);
+      return res.json({
+        url,
+        format: 'pdf',
+        text: data.text,
+        length: data.text.length,
+        pages: data.numpages,
+        info: {
+          title: data.info?.Title || null,
+          author: data.info?.Author || null,
+          subject: data.info?.Subject || null,
+        },
+        scraped_at: new Date().toISOString(),
+      });
+    }
+
+    if (isDocx(url, contentType)) {
+      const result = await mammoth.extractRawText({ buffer: buf });
+      return res.json({
+        url,
+        format: 'docx',
+        text: result.value,
+        length: result.value.length,
+        scraped_at: new Date().toISOString(),
+      });
+    }
+
+    // Fallback: treat as HTML/text
+    const text = stripHtml(buf.toString('utf8'));
+    return res.json({
+      url,
+      format: 'text',
+      text,
+      length: text.length,
+      scraped_at: new Date().toISOString(),
     });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// POST: x402 middleware handles payment gate; if it passes, extract content
-app.post("*", async (req, res) => {
-  const { url, base64, format } = req.body ?? {};
-  if (!url && !base64) {
-    return res.status(400).json({ error: "Missing required field: url or base64" });
-  }
-  try {
-    const result = await extractContent(url, base64, format);
-    return res.json({ url: url ?? null, ...result, scraped_at: new Date().toISOString() });
-  } catch (err) {
-    console.error("Extraction error:", err.message);
-    return res.status(500).json({ error: "Extraction failed", detail: err.message });
+    const msg = err?.message || String(err);
+    if (msg.includes('Invalid PDF') || msg.includes('bad XRef')) {
+      return res.status(500).json({ error: 'Extraction failed', detail: 'Invalid PDF structure' });
+    }
+    return res.status(500).json({ error: 'Extraction failed', detail: msg });
   }
 });
 
