@@ -3,33 +3,26 @@
   "info": {
     "title": "ExtractPDF",
     "version": "1.0.0",
-    "description": "Pay-per-use PDF and document extraction API for AI agents. Extract clean text from any PDF or DOCX at $0.005 USDC per call. No API key, no subscription, no account needed.",
+    "description": "Pay-per-use PDF and DOCX text extraction API for AI agents. $0.01 USDC per call. No API key, no account, no subscription.",
+    "x-guidance": "POST /api/extract with JSON body {\"url\": \"<public PDF or DOCX URL>\"}. Pay $0.01 USDC via x402 Gateway Nanopayments. Returns: text (plain text, up to 50k chars), chars (int), pages (int, PDF only), format (pdf|docx|text), title, author, extracted_at (ISO datetime). Use when you need to read the text content of a PDF or Word document at a public URL. Supports Base, Arc, and Polygon chains.",
     "contact": {
-      "url": "https://www.extractpdf.xyz",
-      "email": "artespraticas@gmail.com"
-    },
-    "x-guidance": "Call POST /api/extract with JSON body {\"url\": \"<public PDF or DOCX URL>\"}. Pay $0.005 USDC via x402 (attach signed payment to X-PAYMENT header or PAYMENT-REQUIRED). Returns: text (string, up to 50k chars), pages (int, PDF only), chars (int), title (string), author (string), format (pdf|docx|text), extracted_at (ISO datetime). Use this when you need to read a PDF or Word document from a URL. Supported chains: Base, Arc, Polygon.",
-    "x-logo": {
-      "url": "https://extractpdf.xyz/logo.png"
+      "email": "artespraticas@gmail.com",
+      "url": "https://www.extractpdf.xyz"
     }
+  },
+  "externalDocs": {
+    "url": "https://www.extractpdf.xyz",
+    "description": "Full documentation, examples, and pricing"
   },
   "servers": [
     { "url": "https://www.extractpdf.xyz", "description": "Production" }
   ],
-  "x-payment-info": {
-    "protocols": ["x402", "mpp"],
-    "price": "0.005",
-    "currency": "USD",
-    "networks": ["eip155:8453", "eip155:5042", "eip155:137"],
-    "payTo": "WALLET_ADDRESS_ENV"
-  },
   "paths": {
     "/api/extract": {
       "get": {
         "operationId": "healthCheck",
-        "summary": "Service health and info",
-        "description": "Returns service status, supported formats, and pricing.",
-        "x-auth-mode": "none",
+        "summary": "Service info",
+        "description": "Returns service status, supported formats, pricing, and endpoint details.",
         "responses": {
           "200": {
             "description": "Service info",
@@ -44,12 +37,16 @@
       "post": {
         "operationId": "extractDocument",
         "summary": "Extract text from a PDF or DOCX document",
-        "description": "Fetches the document at the given URL and returns extracted plain text, page count, author, and title. Supports PDF and DOCX. Payment of $0.005 USDC required via x402 X-PAYMENT header.",
-        "x-payment": {
-          "required": true,
-          "amount": "0.005",
-          "currency": "USD",
-          "networks": ["eip155:8453", "eip155:5042", "eip155:137"]
+        "description": "Fetches the document at the provided URL and returns extracted plain text with metadata. Supports PDF and DOCX formats. Requires $0.01 USDC payment via x402.",
+        "x-payment-info": {
+          "price": {
+            "mode": "fixed",
+            "amount": "0.010000",
+            "currency": "USDC"
+          },
+          "protocols": [
+            { "x402": {} }
+          ]
         },
         "requestBody": {
           "required": true,
@@ -59,7 +56,7 @@
               "examples": {
                 "pdf": {
                   "summary": "Extract a PDF",
-                  "value": { "url": "https://www.w3.org/WAI/WCAG21/wcag21.pdf" }
+                  "value": { "url": "https://upload.wikimedia.org/wikipedia/commons/1/13/Example.pdf" }
                 },
                 "docx": {
                   "summary": "Extract a DOCX",
@@ -78,19 +75,19 @@
               }
             }
           },
+          "400": {
+            "description": "Missing or invalid url field"
+          },
           "402": {
-            "description": "Payment required",
+            "description": "Payment required — attach a valid x402 payment signature and retry",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/PaymentRequired" }
               }
             }
           },
-          "422": {
-            "description": "Could not fetch the document"
-          },
           "500": {
-            "description": "Extraction failed"
+            "description": "Extraction failed — document could not be fetched or parsed"
           }
         }
       }
@@ -105,11 +102,7 @@
           "url": {
             "type": "string",
             "format": "uri",
-            "description": "Public URL of a PDF or DOCX document"
-          },
-          "pages": {
-            "type": "string",
-            "description": "Optional page range e.g. '1-5' or 'all' (default: all)"
+            "description": "Publicly accessible URL of a PDF or DOCX document. Must return the file directly (not an HTML page). Example: https://example.com/report.pdf"
           }
         }
       },
@@ -117,14 +110,41 @@
         "type": "object",
         "required": ["url", "text", "chars", "format", "extracted_at"],
         "properties": {
-          "url": { "type": "string" },
-          "text": { "type": "string", "description": "Extracted plain text (up to 50,000 chars)" },
-          "pages": { "type": "number", "description": "Total page count (PDF only)" },
-          "chars": { "type": "number" },
-          "title": { "type": "string" },
-          "author": { "type": "string" },
-          "format": { "type": "string", "enum": ["pdf", "docx", "text"] },
-          "extracted_at": { "type": "string", "format": "date-time" }
+          "url": {
+            "type": "string",
+            "description": "The URL that was fetched"
+          },
+          "text": {
+            "type": "string",
+            "description": "Extracted plain text content, up to 50,000 characters"
+          },
+          "chars": {
+            "type": "integer",
+            "description": "Total character count of the extracted text"
+          },
+          "pages": {
+            "type": "integer",
+            "description": "Total page count (PDF only)"
+          },
+          "format": {
+            "type": "string",
+            "enum": ["pdf", "docx", "text"],
+            "description": "Detected document format"
+          },
+          "info": {
+            "type": "object",
+            "description": "Document metadata (PDF only)",
+            "properties": {
+              "title": { "type": "string", "description": "Document title from metadata" },
+              "author": { "type": "string", "description": "Document author from metadata" },
+              "subject": { "type": "string", "description": "Document subject from metadata" }
+            }
+          },
+          "extracted_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 timestamp of when the extraction was performed"
+          }
         }
       },
       "ServiceInfo": {
@@ -135,23 +155,14 @@
           "price": { "type": "string" },
           "endpoint": { "type": "string" },
           "accepts_formats": { "type": "array", "items": { "type": "string" } },
-          "chains": { "type": "array", "items": { "type": "string" } },
           "docs": { "type": "string" }
         }
       },
       "PaymentRequired": {
         "type": "object",
         "properties": {
-          "x402Version": { "type": "number" },
+          "x402Version": { "type": "integer" },
           "error": { "type": "string" },
-          "resource": {
-            "type": "object",
-            "properties": {
-              "url": { "type": "string" },
-              "description": { "type": "string" },
-              "mimeType": { "type": "string" }
-            }
-          },
           "accepts": { "type": "array" }
         }
       }
