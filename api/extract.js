@@ -43,13 +43,18 @@ const CORS_OPTS = {
 
 app.use(cors(CORS_OPTS));
 app.options('*', cors(CORS_OPTS));
-// Buffer raw body first so gateway middleware + our handler both see it
-app.use(express.raw({ type: '*/*', limit: '1mb' }));
+
+// Capture raw body BEFORE gateway middleware consumes the stream
 app.use((req, _res, next) => {
-  if (Buffer.isBuffer(req.body)) {
-    try { req.body = JSON.parse(req.body.toString()); } catch { req.body = {}; }
-  }
-  next();
+  const chunks = [];
+  req.on('data', chunk => chunks.push(chunk));
+  req.on('end', () => {
+    const raw = Buffer.concat(chunks).toString('utf8');
+    req.rawBody = raw;
+    try { req.body = JSON.parse(raw); } catch { req.body = {}; }
+    next();
+  });
+  req.on('error', next);
 });
 
 // Health / discovery
@@ -69,12 +74,18 @@ app.post(
   '/api/extract',
   gateway.require('$0.01'),
   async (req, res) => {
-    // Body may arrive pre-parsed or as a raw string from some clients
-    let body = req.body || {};
-    if (typeof body === 'string') {
-      try { body = JSON.parse(body); } catch { body = {}; }
-    }
-    console.log('BODY_DEBUG:', JSON.stringify({ type: typeof body, keys: Object.keys(body || {}), raw: JSON.stringify(body)?.slice(0, 200) }));
+    // Gateway middleware consumes the stream — read rawBody it leaves behind, or re-read
+    let body = {};
+    try {
+      const raw = req.rawBody
+        || await new Promise((resolve, reject) => {
+            const chunks = [];
+            req.on('data', c => chunks.push(c));
+            req.on('end', () => resolve(Buffer.concat(chunks).toString()));
+            req.on('error', reject);
+          });
+      body = typeof raw === 'string' ? JSON.parse(raw) : (raw || {});
+    } catch { body = {}; }
     const { url } = body;
     if (!url || typeof url !== 'string') {
       return res.status(400).json({ error: 'Missing required field: url (string, public PDF or DOCX URL)' });
