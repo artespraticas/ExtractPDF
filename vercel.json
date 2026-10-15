@@ -10,7 +10,8 @@
       "headers": [
         { "key": "Access-Control-Allow-Origin", "value": "*" },
         { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, X-PAYMENT, Accept" }
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, X-PAYMENT, Accept" },
+        { "key": "WWW-Authenticate", "value": "MPP realm=\"https://www.extractpdf.xyz\", payment-type=\"x402\", asset=\"USDC\", network=\"base\", pay-to=\"0x0d4897bf4222deDdf8A5b31fa7D8021C369f40D1\", amount=\"10000\"" }
       ]
     }
   ]
