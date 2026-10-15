@@ -74,18 +74,16 @@ app.post(
   '/api/extract',
   gateway.require('$0.01'),
   async (req, res) => {
-    // Gateway middleware consumes the stream — read rawBody it leaves behind, or re-read
+    // Parse body — handle Buffer (Vercel pre-parse), string, or already-parsed object
+    const rawBody = req.body;
     let body = {};
-    try {
-      const raw = req.rawBody
-        || await new Promise((resolve, reject) => {
-            const chunks = [];
-            req.on('data', c => chunks.push(c));
-            req.on('end', () => resolve(Buffer.concat(chunks).toString()));
-            req.on('error', reject);
-          });
-      body = typeof raw === 'string' ? JSON.parse(raw) : (raw || {});
-    } catch { body = {}; }
+    if (Buffer.isBuffer(rawBody)) {
+      try { body = JSON.parse(rawBody.toString()); } catch { body = {}; }
+    } else if (typeof rawBody === 'string') {
+      try { body = JSON.parse(rawBody); } catch { body = {}; }
+    } else if (rawBody && typeof rawBody === 'object') {
+      body = rawBody;
+    }
     const { url } = body;
     if (!url || typeof url !== 'string') {
       return res.status(400).json({ error: 'Missing required field: url (string, public PDF or DOCX URL)' });
