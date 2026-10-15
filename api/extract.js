@@ -44,6 +44,7 @@ const CORS_OPTS = {
 app.use(cors(CORS_OPTS));
 app.options('*', cors(CORS_OPTS));
 app.use(express.json());
+app.use(express.text({ type: '*/*' }));  // catch raw string bodies from Circle CLI
 
 // Health / discovery
 app.get('/api/extract', (_req, res) => {
