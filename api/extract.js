@@ -43,8 +43,14 @@ const CORS_OPTS = {
 
 app.use(cors(CORS_OPTS));
 app.options('*', cors(CORS_OPTS));
-app.use(express.json());
-app.use(express.text({ type: '*/*' }));  // catch raw string bodies from Circle CLI
+// Buffer raw body first so gateway middleware + our handler both see it
+app.use(express.raw({ type: '*/*', limit: '1mb' }));
+app.use((req, _res, next) => {
+  if (Buffer.isBuffer(req.body)) {
+    try { req.body = JSON.parse(req.body.toString()); } catch { req.body = {}; }
+  }
+  next();
+});
 
 // Health / discovery
 app.get('/api/extract', (_req, res) => {
