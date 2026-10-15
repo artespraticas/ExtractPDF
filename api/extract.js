@@ -74,6 +74,7 @@ app.post(
     if (typeof body === 'string') {
       try { body = JSON.parse(body); } catch { body = {}; }
     }
+    console.log('BODY_DEBUG:', JSON.stringify({ type: typeof body, keys: Object.keys(body || {}), raw: JSON.stringify(body)?.slice(0, 200) }));
     const { url } = body;
     if (!url || typeof url !== 'string') {
       return res.status(400).json({ error: 'Missing required field: url (string, public PDF or DOCX URL)' });
