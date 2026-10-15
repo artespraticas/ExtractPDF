@@ -62,7 +62,12 @@ app.post(
   '/api/extract',
   gateway.require('$0.01'),
   async (req, res) => {
-    const { url } = req.body || {};
+    // Body may arrive pre-parsed or as a raw string from some clients
+    let body = req.body || {};
+    if (typeof body === 'string') {
+      try { body = JSON.parse(body); } catch { body = {}; }
+    }
+    const { url } = body;
     if (!url || typeof url !== 'string') {
       return res.status(400).json({ error: 'Missing required field: url (string, public PDF or DOCX URL)' });
     }
