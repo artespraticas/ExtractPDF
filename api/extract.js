@@ -57,16 +57,44 @@ app.use((req, _res, next) => {
   req.on('error', next);
 });
 
-// Health / discovery
-app.get('/api/extract', (_req, res) => {
-  res.json({
-    service: 'ExtractPDF',
-    description: 'Pay-per-use PDF and DOCX text extraction for AI agents',
-    price: '$0.01 USDC per call',
-    endpoint: 'POST /api/extract',
-    accepts_formats: ['pdf', 'docx'],
-    docs: 'https://www.extractpdf.xyz',
-  });
+// ---------------------------------------------------------------------------
+// Dual-rail 402 on GET — required for Circle score probe + MPP discovery
+// ---------------------------------------------------------------------------
+const PAYMENT_SCHEMA = {
+  type: 'object',
+  required: ['url'],
+  properties: {
+    url: {
+      type: 'string',
+      description: 'Publicly accessible URL of a PDF or DOCX file to extract text from',
+    },
+  },
+};
+
+const MPP_HEADER = [
+  `MPP realm="https://www.extractpdf.xyz"`,
+  `payment-type="x402"`,
+  `asset="USDC"`,
+  `network="base"`,
+  `pay-to="${WALLET_ADDRESS}"`,
+  `amount="10000"`,
+].join(', ');
+
+app.get('/api/extract', (req, res) => {
+  // Return 402 with dual-rail headers: Gateway x402 + MPP
+  // This tells Circle's probe, MPPScan, and all agents the endpoint is paid
+  res.status(402)
+    .set('WWW-Authenticate', MPP_HEADER)
+    .set('X-Payment-Required', 'true')
+    .json({
+      error: 'Payment required',
+      price: '$0.01 USDC',
+      endpoint: 'POST /api/extract',
+      schema: PAYMENT_SCHEMA,
+      docs: 'https://www.extractpdf.xyz',
+      protocols: ['x402', 'mpp'],
+      networks: ['eip155:8453', 'eip155:5042', 'eip155:137'],
+    });
 });
 
 // Paid extraction endpoint — Gateway middleware gates the route
