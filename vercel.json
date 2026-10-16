@@ -1,12 +1,16 @@
 {
+  "version": 2,
   "functions": {
-    "api/extract.js": {
-      "maxDuration": 30
-    }
+    "api/extract.js": { "maxDuration": 30 }
   },
-  "rewrites": [
-    { "source": "/api/extract-web", "destination": "/api/extract" },
-    { "source": "/api/extract",     "destination": "/api/extract" }
+  "routes": [
+    { "src": "/api/extract-web", "dest": "/api/extract.js" },
+    { "src": "/api/extract",     "dest": "/api/extract.js" },
+    { "src": "/openapi.json",    "dest": "/public/openapi.json" },
+    { "src": "/llms.txt",        "dest": "/public/llms.txt" },
+    { "src": "/.well-known/x402","dest": "/public/.well-known/x402" },
+    { "src": "/assets/(.*)",     "dest": "/public/assets/$1" },
+    { "src": "/(.*)",            "dest": "/public/index.html" }
   ],
   "headers": [
     {
@@ -14,8 +18,7 @@
       "headers": [
         { "key": "Access-Control-Allow-Origin",  "value": "*" },
         { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, X-PAYMENT, PAYMENT-SIGNATURE, Accept" },
-        { "key": "Access-Control-Expose-Headers","value": "PAYMENT-REQUIRED, WWW-Authenticate" }
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, X-PAYMENT, PAYMENT-SIGNATURE, Accept" }
       ]
     }
   ]
