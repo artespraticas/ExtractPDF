@@ -219,18 +219,25 @@ app.post('/api/extract-web', async (req, res) => {
       const r = signature.slice(0, 66);
       const s = ('0x' + signature.slice(66, 130));
       const v = parseInt(signature.slice(130, 132), 16);
-      publicClient.simulateContract({
-        address: BASE_USDC, abi: USDC_ABI, functionName: 'transferWithAuthorization',
-        args: [authorization.from, authorization.to, BigInt(authorization.value),
-               BigInt(authorization.validAfter), BigInt(authorization.validBefore),
-               authorization.nonce, v, r, s],
-        account,
-      }).then(({ request }) => walletClient.writeContract(request))
-        .then(tx => console.log('Web settlement tx:', tx))
-        .catch(err => console.error('Web settlement error:', err?.shortMessage || err?.message));
+      // Extract first, then settle (both blocking before response)
+      const extracted = await extractDoc(url);
+
+      try {
+        const { request } = await publicClient.simulateContract({
+          address: BASE_USDC, abi: USDC_ABI, functionName: 'transferWithAuthorization',
+          args: [authorization.from, authorization.to, BigInt(authorization.value),
+                 BigInt(authorization.validAfter), BigInt(authorization.validBefore),
+                 authorization.nonce, v, r, s],
+          account,
+        });
+        const tx = await walletClient.writeContract(request);
+        console.log('Web settlement tx:', tx);
+      } catch (settleErr) {
+        console.error('Web settlement error:', settleErr?.shortMessage || settleErr?.message);
+      }
     }
 
-    return res.json(await extractDoc(url));
+    return res.json(extracted);
 
   } catch (err) {
     console.error('extract-web error:', err?.message);
