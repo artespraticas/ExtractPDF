@@ -210,19 +210,19 @@ app.post('/api/extract-web', async (req, res) => {
     if (authorization.to.toLowerCase() !== WALLET_ADDRESS.toLowerCase())
       return res.status(402).json({ error: 'Payment recipient mismatch' });
 
-    // Settle on-chain fire-and-forget
+    // Extract document
+    const extracted = await extractDoc(url);
+
+    // Settle on-chain (blocking so Vercel doesn't kill it)
     const settlerKey = process.env.SETTLER_PRIVATE_KEY;
     if (settlerKey) {
-      const account = privateKeyToAccount(settlerKey);
-      const walletClient = createWalletClient({ account, chain: BASE_CHAIN, transport: http() });
-      const publicClient = createPublicClient({ chain: BASE_CHAIN, transport: http() });
-      const r = signature.slice(0, 66);
-      const s = ('0x' + signature.slice(66, 130));
-      const v = parseInt(signature.slice(130, 132), 16);
-      // Extract first, then settle (both blocking before response)
-      const extracted = await extractDoc(url);
-
       try {
+        const account = privateKeyToAccount(settlerKey);
+        const walletClient = createWalletClient({ account, chain: BASE_CHAIN, transport: http() });
+        const publicClient = createPublicClient({ chain: BASE_CHAIN, transport: http() });
+        const r = signature.slice(0, 66);
+        const s = '0x' + signature.slice(66, 130);
+        const v = parseInt(signature.slice(130, 132), 16);
         const { request } = await publicClient.simulateContract({
           address: BASE_USDC, abi: USDC_ABI, functionName: 'transferWithAuthorization',
           args: [authorization.from, authorization.to, BigInt(authorization.value),
