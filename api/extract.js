@@ -169,14 +169,24 @@ app.get('/api/extract-web', (_req, res) => {
 
 app.post('/api/extract-web', async (req, res) => {
   const body = parseBody(req.body);
-  const { url, payment } = body;
+  const { url } = body;
 
   if (!url || typeof url !== 'string')
     return res.status(400).json({ error: 'Missing required field: url' });
-  if (!payment)
+
+  // Read payment from PAYMENT-SIGNATURE or X-PAYMENT header (x402 v2 base64 payload)
+  const paymentHeader = req.headers['payment-signature'] || req.headers['x-payment'];
+  if (!paymentHeader)
     return res.status(402).json({ error: 'Payment required', price: '$0.01 USDC', network: 'eip155:8453' });
 
-  const { authorization, signature } = payment;
+  let paymentPayload;
+  try {
+    paymentPayload = JSON.parse(Buffer.from(paymentHeader, 'base64').toString('utf8'));
+  } catch {
+    return res.status(400).json({ error: 'Invalid payment header encoding' });
+  }
+
+  const { authorization, signature } = paymentPayload?.payload || {};
   if (!authorization || !signature)
     return res.status(400).json({ error: 'Invalid payment: missing authorization or signature' });
 
