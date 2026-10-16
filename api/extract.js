@@ -18,13 +18,31 @@ const gateway = createGatewayMiddleware({
 });
 
 // Base chain config for browser EIP-3009 path
-const BASE_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'; // arc-studio-allow-onchain-literal
-const BASE_RPC  = 'https://mainnet.base.org'; // arc-studio-allow-onchain-literal
-const BASE_CHAIN = {
-  id: 8453, name: 'Base',
-  rpcUrls: { default: { http: [BASE_RPC] } },
-  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+const CHAIN_CONFIGS = {
+  'eip155:8453': {
+    id: 8453, name: 'Base',
+    usdc: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // arc-studio-allow-onchain-literal
+    usdcVersion: '2',
+    rpc: 'https://mainnet.base.org', // arc-studio-allow-onchain-literal
+    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  },
+  'eip155:137': {
+    id: 137, name: 'Polygon',
+    usdc: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', // arc-studio-allow-onchain-literal
+    usdcVersion: '2',
+    rpc: 'https://polygon-rpc.com', // arc-studio-allow-onchain-literal
+    nativeCurrency: { name: 'MATIC', symbol: 'MATIC', decimals: 18 },
+  },
+  'eip155:5042': {
+    id: 5042, name: 'Arc',
+    usdc: '0x3600000000000000000000000000000000000000', // arc-studio-allow-onchain-literal
+    usdcVersion: '1',
+    rpc: 'https://rpc.arc.io', // arc-studio-allow-onchain-literal
+    nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 6 },
+  },
 };
+// Keep BASE_USDC alias for the USDC_ABI reference below
+const BASE_USDC = CHAIN_CONFIGS['eip155:8453'].usdc;
 const TRANSFER_WITH_AUTH_TYPES = {
   TransferWithAuthorization: [
     { name: 'from',        type: 'address' },
@@ -191,8 +209,15 @@ app.post('/api/extract-web', async (req, res) => {
     return res.status(400).json({ error: 'Invalid payment: missing authorization or signature' });
 
   try {
-    // Verify EIP-3009 signature
-    const domain = { name: 'USD Coin', version: '2', chainId: 8453, verifyingContract: BASE_USDC };
+    // Resolve chain from payment payload
+    const network = paymentPayload?.accepted?.network || 'eip155:8453';
+    const chainCfg = CHAIN_CONFIGS[network] || CHAIN_CONFIGS['eip155:8453'];
+    const domain = {
+      name: 'USD Coin',
+      version: chainCfg.usdcVersion,
+      chainId: chainCfg.id,
+      verifyingContract: chainCfg.usdc,
+    };
     const recovered = await recoverTypedDataAddress({
       domain, types: TRANSFER_WITH_AUTH_TYPES, primaryType: 'TransferWithAuthorization',
       message: {
@@ -218,13 +243,14 @@ app.post('/api/extract-web', async (req, res) => {
     if (settlerKey) {
       try {
         const account = privateKeyToAccount(settlerKey);
-        const walletClient = createWalletClient({ account, chain: BASE_CHAIN, transport: http() });
-        const publicClient = createPublicClient({ chain: BASE_CHAIN, transport: http() });
+        const chain = { id: chainCfg.id, name: chainCfg.name, rpcUrls: { default: { http: [chainCfg.rpc] } }, nativeCurrency: chainCfg.nativeCurrency };
+        const walletClient = createWalletClient({ account, chain, transport: http(chainCfg.rpc) });
+        const publicClient = createPublicClient({ chain, transport: http(chainCfg.rpc) });
         const r = signature.slice(0, 66);
         const s = '0x' + signature.slice(66, 130);
         const v = parseInt(signature.slice(130, 132), 16);
         const { request } = await publicClient.simulateContract({
-          address: BASE_USDC, abi: USDC_ABI, functionName: 'transferWithAuthorization',
+          address: chainCfg.usdc, abi: USDC_ABI, functionName: 'transferWithAuthorization',
           args: [authorization.from, authorization.to, BigInt(authorization.value),
                  BigInt(authorization.validAfter), BigInt(authorization.validBefore),
                  authorization.nonce, v, r, s],
