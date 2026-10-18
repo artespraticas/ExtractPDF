@@ -271,4 +271,86 @@ app.post('/api/extract-web', async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// MCP Server — Streamable HTTP transport (JSON-RPC 2.0)
+// Exposes extract_document as a paid MCP tool via Circle Gateway
+// ---------------------------------------------------------------------------
+const MCP_TOOLS = [{
+  name: 'extract_document',
+  description: 'Extract text from a PDF or DOCX file at a public URL. Costs $0.01 USDC per call via x402 payment.',
+  inputSchema: {
+    type: 'object',
+    required: ['url'],
+    properties: {
+      url: { type: 'string', description: 'Publicly accessible URL of a PDF or DOCX file' },
+    },
+  },
+}];
+
+app.post('/mcp', gateway.require('$0.01'), async (req, res) => {
+  const { jsonrpc, id, method, params } = req.body || {};
+  if (jsonrpc !== '2.0')
+    return res.json({ jsonrpc: '2.0', id: id ?? null, error: { code: -32600, message: 'Invalid JSON-RPC version' } });
+
+  // tools/list — free, no payment needed (handled before gateway by GET /mcp)
+  if (method === 'tools/list') {
+    return res.json({ jsonrpc: '2.0', id, result: { tools: MCP_TOOLS } });
+  }
+
+  // tools/call — requires payment (gateway middleware already verified)
+  if (method === 'tools/call') {
+    const { name, arguments: args } = params || {};
+    if (name !== 'extract_document')
+      return res.json({ jsonrpc: '2.0', id, error: { code: -32601, message: `Unknown tool: ${name}` } });
+    const url = args?.url;
+    if (!url || typeof url !== 'string')
+      return res.json({ jsonrpc: '2.0', id, error: { code: -32602, message: 'Missing required argument: url' } });
+    try {
+      const extracted = await extractDoc(url);
+      return res.json({
+        jsonrpc: '2.0', id,
+        result: {
+          content: [{ type: 'text', text: JSON.stringify(extracted, null, 2) }],
+          isError: false,
+        },
+      });
+    } catch (err) {
+      return res.json({
+        jsonrpc: '2.0', id,
+        result: {
+          content: [{ type: 'text', text: `Extraction failed: ${err?.message}` }],
+          isError: true,
+        },
+      });
+    }
+  }
+
+  // initialize — MCP handshake
+  if (method === 'initialize') {
+    return res.json({
+      jsonrpc: '2.0', id,
+      result: {
+        protocolVersion: '2024-11-05',
+        capabilities: { tools: {} },
+        serverInfo: { name: 'ExtractPDF', version: '1.0.0' },
+      },
+    });
+  }
+
+  return res.json({ jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } });
+});
+
+// GET /mcp — free tools/list for discovery (no payment needed)
+app.get('/mcp', (_req, res) => {
+  res.json({
+    jsonrpc: '2.0', id: null,
+    result: { tools: MCP_TOOLS },
+    _meta: {
+      payment: { required: true, amount: '$0.01 USDC', protocol: 'x402', network: 'base' },
+      endpoint: 'POST /mcp',
+      docs: 'https://www.extractpdf.xyz',
+    },
+  });
+});
+
 export default app;
