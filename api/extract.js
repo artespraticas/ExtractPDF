@@ -287,57 +287,37 @@ const MCP_TOOLS = [{
   },
 }];
 
-app.post('/mcp', gateway.require('$0.01'), async (req, res) => {
+// MCP free methods — no payment required
+app.post('/mcp', (req, res, next) => {
   const { jsonrpc, id, method, params } = req.body || {};
   if (jsonrpc !== '2.0')
     return res.json({ jsonrpc: '2.0', id: id ?? null, error: { code: -32600, message: 'Invalid JSON-RPC version' } });
-
-  // tools/list — free, no payment needed (handled before gateway by GET /mcp)
-  if (method === 'tools/list') {
+  if (method === 'initialize')
+    return res.json({ jsonrpc: '2.0', id, result: { protocolVersion: '2024-11-05', capabilities: { tools: {} }, serverInfo: { name: 'ExtractPDF', version: '1.0.0' } } });
+  if (method === 'tools/list')
     return res.json({ jsonrpc: '2.0', id, result: { tools: MCP_TOOLS } });
-  }
+  if (method === 'notifications/initialized')
+    return res.json({ jsonrpc: '2.0', id, result: {} });
+  if (method !== 'tools/call')
+    return res.json({ jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } });
+  next(); // tools/call — fall through to payment gate
+});
 
-  // tools/call — requires payment (gateway middleware already verified)
-  if (method === 'tools/call') {
-    const { name, arguments: args } = params || {};
-    if (name !== 'extract_document')
-      return res.json({ jsonrpc: '2.0', id, error: { code: -32601, message: `Unknown tool: ${name}` } });
-    const url = args?.url;
-    if (!url || typeof url !== 'string')
-      return res.json({ jsonrpc: '2.0', id, error: { code: -32602, message: 'Missing required argument: url' } });
-    try {
-      const extracted = await extractDoc(url);
-      return res.json({
-        jsonrpc: '2.0', id,
-        result: {
-          content: [{ type: 'text', text: JSON.stringify(extracted, null, 2) }],
-          isError: false,
-        },
-      });
-    } catch (err) {
-      return res.json({
-        jsonrpc: '2.0', id,
-        result: {
-          content: [{ type: 'text', text: `Extraction failed: ${err?.message}` }],
-          isError: true,
-        },
-      });
-    }
+// MCP tools/call — requires payment
+app.post('/mcp', gateway.require('$0.01'), async (req, res) => {
+  const { id, params } = req.body || {};
+  const { name, arguments: args } = params || {};
+  if (name !== 'extract_document')
+    return res.json({ jsonrpc: '2.0', id, error: { code: -32601, message: `Unknown tool: ${name}` } });
+  const url = args?.url;
+  if (!url || typeof url !== 'string')
+    return res.json({ jsonrpc: '2.0', id, error: { code: -32602, message: 'Missing required argument: url' } });
+  try {
+    const extracted = await extractDoc(url);
+    return res.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(extracted, null, 2) }], isError: false } });
+  } catch (err) {
+    return res.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: `Extraction failed: ${err?.message}` }], isError: true } });
   }
-
-  // initialize — MCP handshake
-  if (method === 'initialize') {
-    return res.json({
-      jsonrpc: '2.0', id,
-      result: {
-        protocolVersion: '2024-11-05',
-        capabilities: { tools: {} },
-        serverInfo: { name: 'ExtractPDF', version: '1.0.0' },
-      },
-    });
-  }
-
-  return res.json({ jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } });
 });
 
 // GET /mcp — free tools/list for discovery (no payment needed)
