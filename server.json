@@ -1,0 +1,17 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.artespraticas/extractpdf",
+  "title": "ExtractPDF",
+  "description": "Pay-per-use PDF and DOCX text extraction. $0.01 USDC per call via x402. No API key required, no account needed — agents pay automatically via Circle Gateway.",
+  "repository": {
+    "url": "https://github.com/artespraticas/ExtractPDF",
+    "source": "github"
+  },
+  "version": "1.0.0",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://www.extractpdf.xyz/mcp"
+    }
+  ]
+}
