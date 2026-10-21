@@ -218,15 +218,18 @@ app.post('/api/extract-web', async (req, res) => {
       chainId: chainCfg.id,
       verifyingContract: chainCfg.usdc,
     };
+    const message = {
+      from: authorization.from, to: authorization.to,
+      value: BigInt(authorization.value), validAfter: BigInt(authorization.validAfter),
+      validBefore: BigInt(authorization.validBefore), nonce: authorization.nonce,
+    };
     const recovered = await recoverTypedDataAddress({
       domain, types: TRANSFER_WITH_AUTH_TYPES, primaryType: 'TransferWithAuthorization',
-      message: {
-        from: authorization.from, to: authorization.to,
-        value: BigInt(authorization.value), validAfter: BigInt(authorization.validAfter),
-        validBefore: BigInt(authorization.validBefore), nonce: authorization.nonce,
-      },
+      message,
       signature,
     });
+    console.log('verify domain:', JSON.stringify(domain));
+    console.log('verify from:', authorization.from, '| recovered:', recovered);
 
     if (recovered.toLowerCase() !== authorization.from.toLowerCase())
       return res.status(402).json({ error: 'Payment verification failed: signer mismatch' });
