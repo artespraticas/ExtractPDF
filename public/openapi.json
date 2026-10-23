@@ -17,7 +17,7 @@
       },
       "protocols": [
         { "x402": {} },
-        { "mpp": {} }
+        { "mpp": { "method": "", "intent": "", "currency": "" } }
       ],
       "networks": [
         { "chain": "base", "asset": "USDC" },
@@ -40,6 +40,7 @@
         "summary": "Service info",
         "description": "Returns service status, supported formats, pricing, and endpoint details. No payment required.",
         "x-auth-mode": "none",
+        "security": [],
         "responses": {
           "200": {
             "description": "Service info",
@@ -56,6 +57,7 @@
         "summary": "Extract text from a PDF or DOCX document",
         "description": "Fetches the document at the provided URL and returns extracted plain text with metadata. Supports PDF and DOCX formats. Requires $0.01 USDC payment via x402 or MPP.",
         "x-auth-mode": "payment",
+        "security": [{ "mpp": [] }],
         "x-payment-info": {
           "price": {
             "mode": "fixed",
@@ -64,7 +66,7 @@
           },
           "protocols": [
             { "x402": {} },
-            { "mpp": {} }
+            { "mpp": { "method": "", "intent": "", "currency": "" } }
           ],
           "networks": [
             { "chain": "base", "asset": "USDC" },
@@ -72,10 +74,11 @@
             { "chain": "arc", "asset": "USDC" }
           ]
         },
-        "x-bazaar": {
-          "schema": {
-            "properties": {
-              "input": {
+        "extensions": {
+          "bazaar": {
+            "schema": {
+              "properties": {
+                "input": {
                 "type": "object",
                 "required": ["url"],
                 "properties": {
@@ -99,6 +102,7 @@
               }
             }
           }
+        }
         },
         "requestBody": {
           "required": true,
@@ -146,6 +150,13 @@
     }
   },
   "components": {
+    "securitySchemes": {
+      "mpp": {
+        "type": "http",
+        "scheme": "mpp",
+        "description": "MPP micropayment — $0.01 USDC via WWW-Authenticate challenge"
+      }
+    },
     "schemas": {
       "ExtractRequest": {
         "type": "object",
