@@ -1,0 +1,7 @@
+startCommand:
+  type: url
+  url: https://www.extractpdf.xyz/mcp
+  configSchema:
+    type: object
+    properties: {}
+  exampleConfig: {}

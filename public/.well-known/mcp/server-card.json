@@ -1,0 +1,27 @@
+{
+  "serverInfo": {
+    "name": "ExtractPDF",
+    "version": "1.0.0"
+  },
+  "authentication": {
+    "required": false
+  },
+  "tools": [
+    {
+      "name": "extract_document",
+      "description": "Extract text from a PDF or DOCX file at a public URL. Costs $0.01 USDC per call via x402 payment. No API key needed — payment is the auth.",
+      "inputSchema": {
+        "type": "object",
+        "required": ["url"],
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Publicly accessible URL of a PDF or DOCX file"
+          }
+        }
+      }
+    }
+  ],
+  "resources": [],
+  "prompts": []
+}
