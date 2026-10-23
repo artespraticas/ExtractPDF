@@ -10,6 +10,7 @@
     { "src": "/openapi.json",    "dest": "/public/openapi.json" },
     { "src": "/llms.txt",        "dest": "/public/llms.txt" },
     { "src": "/.well-known/x402","dest": "/public/.well-known/x402" },
+    { "src": "/.well-known/mpp", "dest": "/public/.well-known/mpp" },
     { "src": "/.well-known/mcp/server-card.json","dest": "/public/.well-known/mcp/server-card.json" },
     { "src": "/assets/(.*)",     "dest": "/public/assets/$1" },
     { "src": "/(.*)",            "dest": "/public/index.html" }
