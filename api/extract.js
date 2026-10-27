@@ -7,6 +7,10 @@ import mammoth from 'mammoth';
 import { Buffer } from 'node:buffer';
 import { createPublicClient, createWalletClient, http, recoverTypedDataAddress } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const WALLET_ADDRESS = process.env.WALLET_ADDRESS;
 if (!WALLET_ADDRESS) throw new Error('WALLET_ADDRESS env var required');
@@ -131,6 +135,18 @@ app.use((req, _res, next) => {
     next();
   });
   req.on('error', next);
+});
+
+// ---------------------------------------------------------------------------
+// OpenAPI — served dynamically to bypass Vercel static cache
+// ---------------------------------------------------------------------------
+app.get('/openapi.json', (_req, res) => {
+  try {
+    const spec = JSON.parse(readFileSync(join(__dirname, '../public/openapi.json'), 'utf8'));
+    res.set('Cache-Control', 'no-store').json(spec);
+  } catch {
+    res.status(500).json({ error: 'OpenAPI spec not found' });
+  }
 });
 
 // ---------------------------------------------------------------------------
