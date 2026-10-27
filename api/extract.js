@@ -146,14 +146,32 @@ const MPP_HEADER = [
   `pay-to="${WALLET_ADDRESS}"`, `amount="10000"`,
 ].join(', ');
 
+const BAZAAR_SCHEMA = {
+  properties: {
+    input: {
+      type: 'object', required: ['url'],
+      properties: { url: { type: 'string', format: 'uri', description: 'Publicly accessible URL of a PDF or DOCX document' } }
+    },
+    output: {
+      type: 'object', required: ['url', 'text', 'chars', 'format', 'extracted_at'],
+      properties: {
+        url: { type: 'string' }, text: { type: 'string' }, chars: { type: 'integer' },
+        pages: { type: 'integer' }, format: { type: 'string', enum: ['pdf','docx','text'] },
+        extracted_at: { type: 'string', format: 'date-time' }
+      }
+    }
+  }
+};
+
 app.get('/api/extract', (_req, res) => {
   res.status(402).set('WWW-Authenticate', MPP_HEADER).json({
     error: 'Payment required', price: '$0.01 USDC',
     endpoint: 'POST /api/extract',
     schema: PAYMENT_SCHEMA,
     docs: 'https://www.extractpdf.xyz',
-    protocols: ['x402', 'mpp'],
+    protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
     networks: ['eip155:8453', 'eip155:5042', 'eip155:137'],
+    extensions: { bazaar: { schema: BAZAAR_SCHEMA } },
   });
 });
 
