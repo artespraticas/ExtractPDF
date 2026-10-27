@@ -210,7 +210,35 @@ const addMppHeader = (_req, res, next) => {
 // ---------------------------------------------------------------------------
 // Agent endpoint — Circle Gateway (GatewayWalletBatched, gasless, multi-chain)
 // ---------------------------------------------------------------------------
-app.post('/api/extract', addMppHeader, gateway.require('$0.01'), async (req, res) => {
+// When no payment header is present, return a rich 402 so validators can read schemas.
+// When payment header IS present, pass through Gateway middleware for verification.
+const gatewayMiddleware = gateway.require('$0.01');
+
+app.post('/api/extract', (req, res, next) => {
+  const hasPayment = req.headers['x-payment'] || req.headers['payment-signature'] ||
+    req.headers['payment-required'] || req.headers['authorization'];
+  if (!hasPayment) {
+    return res.status(402)
+      .set('WWW-Authenticate', MPP_HEADER)
+      .json({
+        error: 'Payment required', price: '$0.01 USDC',
+        endpoint: 'POST /api/extract',
+        docs: 'https://www.extractpdf.xyz',
+        protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
+        networks: ['eip155:8453', 'eip155:5042', 'eip155:137'],
+        resource: {
+          url: 'https://www.extractpdf.xyz/api/extract',
+          description: 'PDF and DOCX text extraction',
+          mimeType: 'application/json',
+          inputSchema: BAZAAR_SCHEMA.properties.input,
+          outputSchema: BAZAAR_SCHEMA.properties.output,
+        },
+        extensions: { bazaar: { schema: BAZAAR_SCHEMA } },
+      });
+  }
+  // Has payment — run Gateway verification
+  addMppHeader(req, res, () => gatewayMiddleware(req, res, next));
+}, async (req, res) => {
   const body = parseBody(req.body);
   const { url } = body;
   if (!url || typeof url !== 'string')
