@@ -157,10 +157,20 @@ app.get('/api/extract', (_req, res) => {
   });
 });
 
+// Intercept gateway 402 to add WWW-Authenticate: MPP (required by MPPScan)
+const addMppHeader = (_req, res, next) => {
+  const origJson = res.json.bind(res);
+  res.json = function(body) {
+    if (res.statusCode === 402) res.set('WWW-Authenticate', MPP_HEADER);
+    return origJson(body);
+  };
+  next();
+};
+
 // ---------------------------------------------------------------------------
 // Agent endpoint — Circle Gateway (GatewayWalletBatched, gasless, multi-chain)
 // ---------------------------------------------------------------------------
-app.post('/api/extract', gateway.require('$0.01'), async (req, res) => {
+app.post('/api/extract', addMppHeader, gateway.require('$0.01'), async (req, res) => {
   const body = parseBody(req.body);
   const { url } = body;
   if (!url || typeof url !== 'string')
