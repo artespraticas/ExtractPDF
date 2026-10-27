@@ -159,10 +159,10 @@ app.get('/api/extract', (_req, res) => {
 
 // Intercept gateway 402 to add WWW-Authenticate: MPP (required by MPPScan)
 const addMppHeader = (_req, res, next) => {
-  const origJson = res.json.bind(res);
-  res.json = function(body) {
-    if (res.statusCode === 402) res.set('WWW-Authenticate', MPP_HEADER);
-    return origJson(body);
+  const origWriteHead = res.writeHead.bind(res);
+  res.writeHead = function(statusCode, ...args) {
+    if (statusCode === 402) this.setHeader('WWW-Authenticate', MPP_HEADER);
+    return origWriteHead(statusCode, ...args);
   };
   next();
 };
