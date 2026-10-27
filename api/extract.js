@@ -167,10 +167,16 @@ app.get('/api/extract', (_req, res) => {
   res.status(402).set('WWW-Authenticate', MPP_HEADER).json({
     error: 'Payment required', price: '$0.01 USDC',
     endpoint: 'POST /api/extract',
-    schema: PAYMENT_SCHEMA,
     docs: 'https://www.extractpdf.xyz',
     protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
     networks: ['eip155:8453', 'eip155:5042', 'eip155:137'],
+    resource: {
+      url: 'https://www.extractpdf.xyz/api/extract',
+      description: 'PDF and DOCX text extraction',
+      mimeType: 'application/json',
+      inputSchema: BAZAAR_SCHEMA.properties.input,
+      outputSchema: BAZAAR_SCHEMA.properties.output,
+    },
     extensions: { bazaar: { schema: BAZAAR_SCHEMA } },
   });
 });
