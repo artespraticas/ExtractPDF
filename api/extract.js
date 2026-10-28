@@ -162,18 +162,24 @@ const MPP_HEADER = [
   `pay-to="${WALLET_ADDRESS}"`, `amount="10000"`,
 ].join(', ');
 
+// Bazaar schema: input.properties.body = request body, output.properties.example = response
 const BAZAAR_SCHEMA = {
   properties: {
     input: {
-      type: 'object', required: ['url'],
-      properties: { url: { type: 'string', format: 'uri', description: 'Publicly accessible URL of a PDF or DOCX document' } }
+      properties: {
+        body: { type: 'object', required: ['url'], properties: { url: { type: 'string', format: 'uri', description: 'Publicly accessible URL of a PDF or DOCX document' } } }
+      }
     },
     output: {
-      type: 'object', required: ['url', 'text', 'chars', 'format', 'extracted_at'],
       properties: {
-        url: { type: 'string' }, text: { type: 'string' }, chars: { type: 'integer' },
-        pages: { type: 'integer' }, format: { type: 'string', enum: ['pdf','docx','text'] },
-        extracted_at: { type: 'string', format: 'date-time' }
+        example: {
+          type: 'object', required: ['text', 'chars', 'format', 'extracted_at'],
+          properties: {
+            url: { type: 'string' }, text: { type: 'string' }, chars: { type: 'integer' },
+            pages: { type: 'integer' }, format: { type: 'string', enum: ['pdf','docx','text'] },
+            extracted_at: { type: 'string', format: 'date-time' }
+          }
+        }
       }
     }
   }
