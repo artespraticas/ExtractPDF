@@ -162,6 +162,24 @@ const MPP_HEADER = [
   `pay-to="${WALLET_ADDRESS}"`, `amount="10000"`,
 ].join(', ');
 
+// v2 PAYMENT-REQUIRED payload (base64) — required by Circle CLI + agentcash validator
+const EXTRACT_RESOURCE = { url: 'https://www.extractpdf.xyz/api/extract', description: 'PDF and DOCX text extraction', mimeType: 'application/json' };
+const EXTRACT_ACCEPTS_V2 = [
+  { scheme: 'exact', network: 'eip155:8453', amount: '10000', asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', payTo: WALLET_ADDRESS, maxTimeoutSeconds: 300 }, // arc-studio-allow-onchain-literal
+  { scheme: 'exact', network: 'eip155:5042', amount: '10000', asset: '0x3600000000000000000000000000000000000000', payTo: WALLET_ADDRESS, maxTimeoutSeconds: 300 }, // arc-studio-allow-onchain-literal
+  { scheme: 'exact', network: 'eip155:137',  amount: '10000', asset: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', payTo: WALLET_ADDRESS, maxTimeoutSeconds: 300 }, // arc-studio-allow-onchain-literal
+];
+
+function makePaymentRequiredHeader(bazaarSchema) {
+  const payload = {
+    x402Version: 2,
+    resource: EXTRACT_RESOURCE,
+    accepts: EXTRACT_ACCEPTS_V2,
+    extensions: { bazaar: { schema: bazaarSchema } },
+  };
+  return Buffer.from(JSON.stringify(payload)).toString('base64');
+}
+
 // Bazaar schema: input.properties.body = request body, output.properties.example = response
 const BAZAAR_SCHEMA = {
   properties: {
@@ -186,7 +204,11 @@ const BAZAAR_SCHEMA = {
 };
 
 app.get('/api/extract', (_req, res) => {
-  res.status(402).set('WWW-Authenticate', MPP_HEADER).json({
+  res.status(402)
+    .set('WWW-Authenticate', MPP_HEADER)
+    .set('PAYMENT-REQUIRED', makePaymentRequiredHeader(BAZAAR_SCHEMA))
+    .set('Access-Control-Expose-Headers', 'PAYMENT-REQUIRED,WWW-Authenticate')
+    .json({
     error: 'Payment required', price: '$0.01 USDC',
     endpoint: 'POST /api/extract',
     docs: 'https://www.extractpdf.xyz',
@@ -226,6 +248,8 @@ app.post('/api/extract', (req, res, next) => {
   if (!hasPayment) {
     return res.status(402)
       .set('WWW-Authenticate', MPP_HEADER)
+      .set('PAYMENT-REQUIRED', makePaymentRequiredHeader(BAZAAR_SCHEMA))
+      .set('Access-Control-Expose-Headers', 'PAYMENT-REQUIRED,WWW-Authenticate')
       .json({
         error: 'Payment required', price: '$0.01 USDC',
         endpoint: 'POST /api/extract',
