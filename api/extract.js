@@ -156,10 +156,12 @@ const PAYMENT_SCHEMA = {
   type: 'object', required: ['url'],
   properties: { url: { type: 'string', description: 'Publicly accessible URL of a PDF or DOCX file' } },
 };
+const INPUT_SCHEMA_ENCODED = encodeURIComponent(JSON.stringify({ properties: { body: { type: 'object', required: ['url'], properties: { url: { type: 'string', format: 'uri', description: 'Publicly accessible URL of a PDF or DOCX document' } } } } }));
 const MPP_HEADER = [
-  `MPP realm="https://www.extractpdf.xyz"`,
-  `payment-type="x402"`, `asset="USDC"`, `network="base"`,
+  `MPP realm="www.extractpdf.xyz"`,
+  `payment-type="x402"`, `asset="USDC"`, `network="eip155:8453"`,
   `pay-to="${WALLET_ADDRESS}"`, `amount="10000"`,
+  `input-schema="${INPUT_SCHEMA_ENCODED}"`,
 ].join(', ');
 
 // v2 PAYMENT-REQUIRED payload (base64) — required by Circle CLI + agentcash validator
