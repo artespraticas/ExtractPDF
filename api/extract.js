@@ -286,6 +286,60 @@ app.post('/api/extract', (req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
+// /api/extract/x402 — dedicated MPPScan discovery alias (GET + POST mirror)
+// ---------------------------------------------------------------------------
+const X402_MPP_HEADER = MPP_HEADER.replace('/api/extract"', '/api/extract/x402"');
+
+app.get('/api/extract/x402', (_req, res) => {
+  res.status(402)
+    .set('WWW-Authenticate', X402_MPP_HEADER)
+    .set('PAYMENT-REQUIRED', makePaymentRequiredHeader(BAZAAR_SCHEMA))
+    .set('Access-Control-Expose-Headers', 'PAYMENT-REQUIRED,WWW-Authenticate')
+    .json({
+      x402Version: 1, error: 'Payment required', price: '$0.01 USDC',
+      endpoint: 'POST /api/extract/x402',
+      docs: 'https://www.extractpdf.xyz',
+      protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
+      networks: ['eip155:8453', 'eip155:5042', 'eip155:137'],
+      resource: { url: 'https://www.extractpdf.xyz/api/extract/x402', description: 'PDF and DOCX text extraction', mimeType: 'application/json' },
+      extensions: { bazaar: { schema: BAZAAR_SCHEMA } },
+    });
+});
+
+app.post('/api/extract/x402', (req, res, next) => {
+  const hasPayment = req.headers['x-payment'] || req.headers['payment-signature'] ||
+    req.headers['payment-required'] || req.headers['authorization'];
+  if (!hasPayment) {
+    return res.status(402)
+      .set('WWW-Authenticate', X402_MPP_HEADER)
+      .set('PAYMENT-REQUIRED', makePaymentRequiredHeader(BAZAAR_SCHEMA))
+      .set('Access-Control-Expose-Headers', 'PAYMENT-REQUIRED,WWW-Authenticate')
+      .json({
+        x402Version: 1, error: 'Payment required', price: '$0.01 USDC',
+        endpoint: 'POST /api/extract/x402',
+        docs: 'https://www.extractpdf.xyz',
+        protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
+        networks: ['eip155:8453', 'eip155:5042', 'eip155:137'],
+        resource: { url: 'https://www.extractpdf.xyz/api/extract/x402', description: 'PDF and DOCX text extraction', mimeType: 'application/json' },
+        extensions: { bazaar: { schema: BAZAAR_SCHEMA } },
+      });
+  }
+  addMppHeader(req, res, () => gatewayMiddleware(req, res, next));
+}, async (req, res) => {
+  const body = parseBody(req.body);
+  const { url } = body;
+  if (!url || typeof url !== 'string')
+    return res.status(400).json({ error: 'Missing required field: url (string, public PDF or DOCX URL)' });
+  try {
+    return res.json(await extractDoc(url));
+  } catch (err) {
+    const msg = err?.message || '';
+    if (msg.includes('Invalid PDF')) return res.status(500).json({ error: 'Extraction failed', detail: 'Invalid PDF structure' });
+    return res.status(500).json({ error: 'Extraction failed', detail: msg });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Browser endpoint — EIP-3009 direct signature from connected wallet
 // ---------------------------------------------------------------------------
 app.get('/api/extract-web', (_req, res) => {

@@ -7,6 +7,7 @@
     { "src": "/api/extract-web", "dest": "/api/extract.js" },
     { "src": "/mcp", "dest": "/api/extract.js" },
     { "src": "/api/extract",     "dest": "/api/extract.js" },
+    { "src": "/api/extract/x402","dest": "/api/extract.js" },
     { "src": "/openapi.json",    "dest": "/api/extract.js" },
     { "src": "/llms.txt",        "dest": "/public/llms.txt" },
     { "src": "/.well-known/x402","dest": "/public/.well-known/x402" },
