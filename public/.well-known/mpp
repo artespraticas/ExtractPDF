@@ -2,12 +2,34 @@
   "version": "1.0",
   "endpoints": [
     {
+      "url": "https://www.extractpdf.xyz/api/extract/x402",
+      "method": "POST",
+      "price": { "amount": "10000", "currency": "USDC", "decimals": 6 },
+      "networks": ["eip155:8453", "eip155:5042", "eip155:137"],
+      "description": "Extract text from PDF or DOCX files",
+      "payTo": "0x0d4897bf4222deDdf8A5b31fa7D8021C369f40D1",
+      "inputSchema": {
+        "type": "object",
+        "required": ["url"],
+        "properties": {
+          "url": { "type": "string", "format": "uri", "description": "Publicly accessible URL of a PDF or DOCX document" }
+        }
+      }
+    },
+    {
       "url": "https://www.extractpdf.xyz/api/extract",
       "method": "POST",
       "price": { "amount": "10000", "currency": "USDC", "decimals": 6 },
       "networks": ["eip155:8453", "eip155:5042", "eip155:137"],
       "description": "Extract text from PDF or DOCX files",
-      "payTo": "0x0d4897bf4222deDdf8A5b31fa7D8021C369f40D1"
+      "payTo": "0x0d4897bf4222deDdf8A5b31fa7D8021C369f40D1",
+      "inputSchema": {
+        "type": "object",
+        "required": ["url"],
+        "properties": {
+          "url": { "type": "string", "format": "uri", "description": "Publicly accessible URL of a PDF or DOCX document" }
+        }
+      }
     }
   ]
 }
