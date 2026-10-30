@@ -195,6 +195,18 @@
         "type": "http",
         "scheme": "mpp",
         "description": "MPP micropayment — $0.01 USDC via WWW-Authenticate challenge"
+      },
+      "siwe": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "SIWE",
+        "description": "Optional Sign-In With Ethereum (SIWE/SIWX) wallet authentication. Pass a SIWE session token as Bearer. Anonymous x402 payment still accepted without this."
+      },
+      "worldId": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-World-ID-Proof",
+        "description": "Optional World ID ZK proof of humanity (nullifier_hash + proof + merkle_root). Anonymous x402 payment still accepted without this."
       }
     },
     "schemas": {
