@@ -13,16 +13,33 @@
       "price": {
         "mode": "fixed",
         "amount": "0.010000",
-        "currency": "USDC"
+        "currency": "USD"
       },
       "protocols": [
-        { "x402": {} },
-        { "mpp": { "method": "", "intent": "", "currency": "" } }
+        {
+          "x402": {}
+        },
+        {
+          "mpp": {
+            "method": "POST",
+            "intent": "extract",
+            "currency": "USDC"
+          }
+        }
       ],
       "networks": [
-        { "chain": "base", "asset": "USDC" },
-        { "chain": "polygon", "asset": "USDC" },
-        { "chain": "arc", "asset": "USDC" }
+        {
+          "chain": "base",
+          "asset": "USDC"
+        },
+        {
+          "chain": "polygon",
+          "asset": "USDC"
+        },
+        {
+          "chain": "arc",
+          "asset": "USDC"
+        }
       ]
     }
   },
@@ -31,24 +48,92 @@
     "description": "Full documentation, examples, and pricing"
   },
   "servers": [
-    { "url": "https://www.extractpdf.xyz", "description": "Production" }
+    {
+      "url": "https://www.extractpdf.xyz",
+      "description": "Production"
+    }
   ],
   "paths": {
     "/api/extract": {
       "get": {
         "operationId": "healthCheck",
-        "summary": "Service info — returns 402 with payment instructions for agents",
+        "summary": "Service info \u2014 returns 402 with payment instructions for agents",
         "description": "Returns 402 with x402/MPP payment instructions. Agents use this to discover pricing, chains, and how to pay. POST /api/extract with a valid X-PAYMENT header to extract text.",
-        "security": [{ "mpp": [] }],
+        "security": [
+          {
+            "mpp": []
+          }
+        ],
         "x-payment-info": {
-          "price": { "mode": "fixed", "amount": "0.010000", "currency": "USDC" },
-          "protocols": [{ "x402": {} }, { "mpp": { "method": "", "intent": "", "currency": "" } }],
-          "networks": [{ "chain": "base", "asset": "USDC" }, { "chain": "arc", "asset": "USDC" }, { "chain": "polygon", "asset": "USDC" }],
+          "price": {
+            "mode": "fixed",
+            "amount": "0.010000",
+            "currency": "USD"
+          },
+          "protocols": [
+            {
+              "x402": {}
+            },
+            {
+              "mpp": {
+                "method": "POST",
+                "intent": "extract",
+                "currency": "USDC"
+              }
+            }
+          ],
+          "networks": [
+            {
+              "chain": "base",
+              "asset": "USDC"
+            },
+            {
+              "chain": "arc",
+              "asset": "USDC"
+            },
+            {
+              "chain": "polygon",
+              "asset": "USDC"
+            }
+          ],
           "extensions": {
-            "bazaar": { "schema": { "properties": {
-              "input": { "properties": { "body": { "type": "object", "required": ["url"], "properties": { "url": { "type": "string", "format": "uri" } } } } },
-              "output": { "properties": { "example": { "type": "object", "properties": { "text": { "type": "string" }, "chars": { "type": "integer" } } } } }
-            }}}
+            "bazaar": {
+              "schema": {
+                "properties": {
+                  "input": {
+                    "properties": {
+                      "body": {
+                        "type": "object",
+                        "required": [
+                          "url"
+                        ],
+                        "properties": {
+                          "url": {
+                            "type": "string",
+                            "format": "uri"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "output": {
+                    "properties": {
+                      "example": {
+                        "type": "object",
+                        "properties": {
+                          "text": {
+                            "type": "string"
+                          },
+                          "chars": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         },
         "responses": {
@@ -56,7 +141,9 @@
             "description": "Service info",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ServiceInfo" }
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceInfo"
+                }
               }
             }
           }
@@ -67,21 +154,42 @@
         "summary": "Extract text from a PDF or DOCX document",
         "description": "Fetches the document at the provided URL and returns extracted plain text with metadata. Supports PDF and DOCX formats. Requires $0.01 USDC payment via x402 or MPP.",
         "x-auth-mode": "payment",
-        "security": [{ "mpp": [] }],
+        "security": [
+          {
+            "mpp": []
+          }
+        ],
         "x-payment-info": {
           "price": {
             "mode": "fixed",
             "amount": "0.010000",
-            "currency": "USDC"
+            "currency": "USD"
           },
           "protocols": [
-            { "x402": {} },
-            { "mpp": { "method": "", "intent": "", "currency": "" } }
+            {
+              "x402": {}
+            },
+            {
+              "mpp": {
+                "method": "POST",
+                "intent": "extract",
+                "currency": "USDC"
+              }
+            }
           ],
           "networks": [
-            { "chain": "base", "asset": "USDC" },
-            { "chain": "polygon", "asset": "USDC" },
-            { "chain": "arc", "asset": "USDC" }
+            {
+              "chain": "base",
+              "asset": "USDC"
+            },
+            {
+              "chain": "polygon",
+              "asset": "USDC"
+            },
+            {
+              "chain": "arc",
+              "asset": "USDC"
+            }
           ],
           "extensions": {
             "bazaar": {
@@ -89,7 +197,19 @@
                 "properties": {
                   "input": {
                     "properties": {
-                      "body": { "type": "object", "required": ["url"], "properties": { "url": { "type": "string", "format": "uri", "description": "Publicly accessible URL of a PDF or DOCX document" } } }
+                      "body": {
+                        "type": "object",
+                        "required": [
+                          "url"
+                        ],
+                        "properties": {
+                          "url": {
+                            "type": "string",
+                            "format": "uri",
+                            "description": "Publicly accessible URL of a PDF or DOCX document"
+                          }
+                        }
+                      }
                     }
                   },
                   "output": {
@@ -97,8 +217,25 @@
                       "example": {
                         "type": "object",
                         "properties": {
-                          "url": { "type": "string" }, "text": { "type": "string" }, "chars": { "type": "integer" },
-                          "pages": { "type": "integer" }, "format": { "type": "string" }, "extracted_at": { "type": "string", "format": "date-time" }
+                          "url": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "chars": {
+                            "type": "integer"
+                          },
+                          "pages": {
+                            "type": "integer"
+                          },
+                          "format": {
+                            "type": "string"
+                          },
+                          "extracted_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
                         }
                       }
                     }
@@ -112,15 +249,21 @@
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/ExtractRequest" },
+              "schema": {
+                "$ref": "#/components/schemas/ExtractRequest"
+              },
               "examples": {
                 "pdf": {
                   "summary": "Extract a PDF",
-                  "value": { "url": "https://upload.wikimedia.org/wikipedia/commons/1/13/Example.pdf" }
+                  "value": {
+                    "url": "https://upload.wikimedia.org/wikipedia/commons/1/13/Example.pdf"
+                  }
                 },
                 "docx": {
                   "summary": "Extract a DOCX",
-                  "value": { "url": "https://example.com/report.docx" }
+                  "value": {
+                    "url": "https://example.com/report.docx"
+                  }
                 }
               }
             }
@@ -131,7 +274,9 @@
             "description": "Extracted document content",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/ExtractResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractResponse"
+                }
               }
             }
           },
@@ -139,15 +284,17 @@
             "description": "Missing or invalid url field"
           },
           "402": {
-            "description": "Payment required — attach a valid x402 or MPP payment header and retry",
+            "description": "Payment required \u2014 attach a valid x402 or MPP payment header and retry",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/PaymentRequired" }
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentRequired"
+                }
               }
             }
           },
           "500": {
-            "description": "Extraction failed — document could not be fetched or parsed"
+            "description": "Extraction failed \u2014 document could not be fetched or parsed"
           }
         }
       }
@@ -156,35 +303,200 @@
       "get": {
         "operationId": "extractX402Probe",
         "summary": "Returns 402 with x402/MPP payment instructions",
-        "security": [{ "mpp": [] }],
+        "security": [
+          {
+            "mpp": []
+          }
+        ],
         "x-payment-info": {
-          "price": { "mode": "fixed", "amount": "0.010000", "currency": "USDC" },
-          "protocols": [{ "x402": {} }, { "mpp": { "method": "", "intent": "", "currency": "" } }],
-          "networks": [{ "chain": "base", "asset": "USDC" }, { "chain": "arc", "asset": "USDC" }, { "chain": "polygon", "asset": "USDC" }],
-          "extensions": { "bazaar": { "schema": { "properties": {
-            "input": { "properties": { "body": { "type": "object", "required": ["url"], "properties": { "url": { "type": "string", "format": "uri" } } } } },
-            "output": { "properties": { "example": { "type": "object", "properties": { "text": { "type": "string" }, "chars": { "type": "integer" } } } } }
-          }}}}
+          "price": {
+            "mode": "fixed",
+            "amount": "0.010000",
+            "currency": "USD"
+          },
+          "protocols": [
+            {
+              "x402": {}
+            },
+            {
+              "mpp": {
+                "method": "POST",
+                "intent": "extract",
+                "currency": "USDC"
+              }
+            }
+          ],
+          "networks": [
+            {
+              "chain": "base",
+              "asset": "USDC"
+            },
+            {
+              "chain": "arc",
+              "asset": "USDC"
+            },
+            {
+              "chain": "polygon",
+              "asset": "USDC"
+            }
+          ],
+          "extensions": {
+            "bazaar": {
+              "schema": {
+                "properties": {
+                  "input": {
+                    "properties": {
+                      "body": {
+                        "type": "object",
+                        "required": [
+                          "url"
+                        ],
+                        "properties": {
+                          "url": {
+                            "type": "string",
+                            "format": "uri"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "output": {
+                    "properties": {
+                      "example": {
+                        "type": "object",
+                        "properties": {
+                          "text": {
+                            "type": "string"
+                          },
+                          "chars": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
         },
-        "responses": { "402": { "description": "Payment required" } }
+        "responses": {
+          "402": {
+            "description": "Payment required"
+          }
+        }
       },
       "post": {
         "operationId": "extractDocumentX402",
         "summary": "Extract text from a PDF or DOCX document (x402 payment path)",
-        "security": [{ "mpp": [] }],
+        "security": [
+          {
+            "mpp": []
+          }
+        ],
         "x-payment-info": {
-          "price": { "mode": "fixed", "amount": "0.010000", "currency": "USDC" },
-          "protocols": [{ "x402": {} }, { "mpp": { "method": "", "intent": "", "currency": "" } }],
-          "networks": [{ "chain": "base", "asset": "USDC" }, { "chain": "arc", "asset": "USDC" }, { "chain": "polygon", "asset": "USDC" }],
-          "extensions": { "bazaar": { "schema": { "properties": {
-            "input": { "properties": { "body": { "type": "object", "required": ["url"], "properties": { "url": { "type": "string", "format": "uri", "description": "Publicly accessible URL of a PDF or DOCX document" } } } } },
-            "output": { "properties": { "example": { "type": "object", "properties": { "text": { "type": "string" }, "chars": { "type": "integer" }, "format": { "type": "string" }, "extracted_at": { "type": "string" } } } } }
-          }}}}
+          "price": {
+            "mode": "fixed",
+            "amount": "0.010000",
+            "currency": "USD"
+          },
+          "protocols": [
+            {
+              "x402": {}
+            },
+            {
+              "mpp": {
+                "method": "POST",
+                "intent": "extract",
+                "currency": "USDC"
+              }
+            }
+          ],
+          "networks": [
+            {
+              "chain": "base",
+              "asset": "USDC"
+            },
+            {
+              "chain": "arc",
+              "asset": "USDC"
+            },
+            {
+              "chain": "polygon",
+              "asset": "USDC"
+            }
+          ],
+          "extensions": {
+            "bazaar": {
+              "schema": {
+                "properties": {
+                  "input": {
+                    "properties": {
+                      "body": {
+                        "type": "object",
+                        "required": [
+                          "url"
+                        ],
+                        "properties": {
+                          "url": {
+                            "type": "string",
+                            "format": "uri",
+                            "description": "Publicly accessible URL of a PDF or DOCX document"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "output": {
+                    "properties": {
+                      "example": {
+                        "type": "object",
+                        "properties": {
+                          "text": {
+                            "type": "string"
+                          },
+                          "chars": {
+                            "type": "integer"
+                          },
+                          "format": {
+                            "type": "string"
+                          },
+                          "extracted_at": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
         },
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExtractRequest" } } } },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtractRequest"
+              }
+            }
+          }
+        },
         "responses": {
-          "200": { "description": "Extracted document content", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExtractResponse" } } } },
-          "402": { "description": "Payment required" }
+          "200": {
+            "description": "Extracted document content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtractResponse"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Payment required"
+          }
         }
       }
     }
@@ -194,7 +506,7 @@
       "mpp": {
         "type": "http",
         "scheme": "mpp",
-        "description": "MPP micropayment — $0.01 USDC via WWW-Authenticate challenge"
+        "description": "MPP micropayment \u2014 $0.01 USDC via WWW-Authenticate challenge"
       },
       "siwe": {
         "type": "http",
@@ -212,7 +524,9 @@
     "schemas": {
       "ExtractRequest": {
         "type": "object",
-        "required": ["url"],
+        "required": [
+          "url"
+        ],
         "properties": {
           "url": {
             "type": "string",
@@ -223,42 +537,103 @@
       },
       "ExtractResponse": {
         "type": "object",
-        "required": ["url", "text", "chars", "format", "extracted_at"],
+        "required": [
+          "url",
+          "text",
+          "chars",
+          "format",
+          "extracted_at"
+        ],
         "properties": {
-          "url": { "type": "string", "description": "The URL that was fetched" },
-          "text": { "type": "string", "description": "Extracted plain text content, up to 50,000 characters" },
-          "chars": { "type": "integer", "description": "Total character count of the extracted text" },
-          "pages": { "type": "integer", "description": "Total page count (PDF only)" },
-          "format": { "type": "string", "enum": ["pdf", "docx", "text"], "description": "Detected document format" },
+          "url": {
+            "type": "string",
+            "description": "The URL that was fetched"
+          },
+          "text": {
+            "type": "string",
+            "description": "Extracted plain text content, up to 50,000 characters"
+          },
+          "chars": {
+            "type": "integer",
+            "description": "Total character count of the extracted text"
+          },
+          "pages": {
+            "type": "integer",
+            "description": "Total page count (PDF only)"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "pdf",
+              "docx",
+              "text"
+            ],
+            "description": "Detected document format"
+          },
           "info": {
             "type": "object",
             "description": "Document metadata (PDF only)",
             "properties": {
-              "title": { "type": "string", "description": "Document title from metadata" },
-              "author": { "type": "string", "description": "Document author from metadata" },
-              "subject": { "type": "string", "description": "Document subject from metadata" }
+              "title": {
+                "type": "string",
+                "description": "Document title from metadata"
+              },
+              "author": {
+                "type": "string",
+                "description": "Document author from metadata"
+              },
+              "subject": {
+                "type": "string",
+                "description": "Document subject from metadata"
+              }
             }
           },
-          "extracted_at": { "type": "string", "format": "date-time", "description": "ISO 8601 timestamp of when the extraction was performed" }
+          "extracted_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "ISO 8601 timestamp of when the extraction was performed"
+          }
         }
       },
       "ServiceInfo": {
         "type": "object",
         "properties": {
-          "service": { "type": "string" },
-          "description": { "type": "string" },
-          "price": { "type": "string" },
-          "endpoint": { "type": "string" },
-          "accepts_formats": { "type": "array", "items": { "type": "string" } },
-          "docs": { "type": "string" }
+          "service": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "price": {
+            "type": "string",
+            "currency": "USD"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "accepts_formats": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "docs": {
+            "type": "string"
+          }
         }
       },
       "PaymentRequired": {
         "type": "object",
         "properties": {
-          "x402Version": { "type": "integer" },
-          "error": { "type": "string" },
-          "accepts": { "type": "array" }
+          "x402Version": {
+            "type": "integer"
+          },
+          "error": {
+            "type": "string"
+          },
+          "accepts": {
+            "type": "array"
+          }
         }
       }
     }
