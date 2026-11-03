@@ -26,21 +26,21 @@ const CHAIN_CONFIGS = {
   'eip155:8453': {
     id: 8453, name: 'Base',
     usdc: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', // arc-studio-allow-onchain-literal
-    usdcVersion: '2',
+    usdcName: 'USD Coin', usdcVersion: '2',
     rpc: 'https://mainnet.base.org', // arc-studio-allow-onchain-literal
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
   },
   'eip155:137': {
     id: 137, name: 'Polygon',
     usdc: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', // arc-studio-allow-onchain-literal
-    usdcVersion: '2',
+    usdcName: 'USD Coin', usdcVersion: '2',
     rpc: 'https://polygon-rpc.com', // arc-studio-allow-onchain-literal
     nativeCurrency: { name: 'MATIC', symbol: 'MATIC', decimals: 18 },
   },
   'eip155:5042': {
     id: 5042, name: 'Arc',
     usdc: '0x3600000000000000000000000000000000000000', // arc-studio-allow-onchain-literal
-    usdcVersion: '1',
+    usdcName: 'USDC', usdcVersion: '2',
     rpc: 'https://rpc.arc.io', // arc-studio-allow-onchain-literal
     nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 6 },
   },
@@ -167,17 +167,17 @@ const MPP_HEADER = [
 // v2 PAYMENT-REQUIRED payload (base64) — required by Circle CLI + agentcash validator
 const EXTRACT_RESOURCE = { url: 'https://www.extractpdf.xyz/api/extract', description: 'PDF and DOCX text extraction', mimeType: 'application/json' };
 const EXTRACT_ACCEPTS_V2 = [
-  { scheme: 'exact', network: 'eip155:8453', amount: '10000', asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', payTo: WALLET_ADDRESS, maxTimeoutSeconds: 300 }, // arc-studio-allow-onchain-literal
-  { scheme: 'exact', network: 'eip155:5042', amount: '10000', asset: '0x3600000000000000000000000000000000000000', payTo: WALLET_ADDRESS, maxTimeoutSeconds: 300 }, // arc-studio-allow-onchain-literal
-  { scheme: 'exact', network: 'eip155:137',  amount: '10000', asset: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', payTo: WALLET_ADDRESS, maxTimeoutSeconds: 300 }, // arc-studio-allow-onchain-literal
+  { scheme: 'exact', network: 'eip155:8453', amount: '10000', asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', payTo: WALLET_ADDRESS, maxTimeoutSeconds: 300, extra: { name: 'USD Coin', version: '2' } }, // arc-studio-allow-onchain-literal
+  { scheme: 'exact', network: 'eip155:5042', amount: '10000', asset: '0x3600000000000000000000000000000000000000', payTo: WALLET_ADDRESS, maxTimeoutSeconds: 300, extra: { name: 'USDC', version: '2' } }, // arc-studio-allow-onchain-literal
+  { scheme: 'exact', network: 'eip155:137',  amount: '10000', asset: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', payTo: WALLET_ADDRESS, maxTimeoutSeconds: 300, extra: { name: 'USD Coin', version: '2' } }, // arc-studio-allow-onchain-literal
 ];
 
-function makePaymentRequiredHeader(bazaarSchema) {
+function makePaymentRequiredHeader() {
   const payload = {
     x402Version: 2,
     resource: EXTRACT_RESOURCE,
     accepts: EXTRACT_ACCEPTS_V2,
-    extensions: { bazaar: { schema: bazaarSchema } },
+    extensions: { bazaar: BAZAAR_EXT },
   };
   return Buffer.from(JSON.stringify(payload)).toString('base64');
 }
@@ -205,16 +205,25 @@ const BAZAAR_SCHEMA = {
   }
 };
 
+// Bazaar extension: info (concrete example) + schema (validates info)
+const BAZAAR_EXT = {
+  info: {
+    input: { type: 'http', method: 'POST', bodyType: 'json', body: { url: 'https://example.com/report.pdf' } },
+    output: { type: 'json', example: { url: 'https://example.com/report.pdf', text: 'Executive Summary ...', chars: 8432, pages: 12, format: 'pdf', extracted_at: '2026-11-03T12:00:00.000Z' } },
+  },
+  schema: BAZAAR_SCHEMA,
+};
+
 app.get('/api/extract', (_req, res) => {
   res.status(402)
     .set('WWW-Authenticate', MPP_HEADER)
-    .set('PAYMENT-REQUIRED', makePaymentRequiredHeader(BAZAAR_SCHEMA))
+    .set('PAYMENT-REQUIRED', makePaymentRequiredHeader())
     .set('Access-Control-Expose-Headers', 'PAYMENT-REQUIRED,WWW-Authenticate')
     .json({
-    error: 'Payment required', price: '$0.01 USDC',
+    x402Version: 2, accepts: EXTRACT_ACCEPTS_V2, error: 'Payment required', price: '$0.01 USDC',
     endpoint: 'POST /api/extract',
     docs: 'https://www.extractpdf.xyz',
-    protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
+    protocols: [{ x402: {} }, { mpp: { method: 'POST', intent: 'extract', currency: 'USDC' } }],
     networks: ['eip155:8453', 'eip155:5042', 'eip155:137'],
     resource: {
       url: 'https://www.extractpdf.xyz/api/extract',
@@ -223,7 +232,7 @@ app.get('/api/extract', (_req, res) => {
       inputSchema: BAZAAR_SCHEMA.properties.input,
       outputSchema: BAZAAR_SCHEMA.properties.output,
     },
-    extensions: { bazaar: { schema: BAZAAR_SCHEMA } },
+    extensions: { bazaar: BAZAAR_EXT },
   });
 });
 
@@ -250,13 +259,13 @@ app.post('/api/extract', (req, res, next) => {
   if (!hasPayment) {
     return res.status(402)
       .set('WWW-Authenticate', MPP_HEADER)
-      .set('PAYMENT-REQUIRED', makePaymentRequiredHeader(BAZAAR_SCHEMA))
+      .set('PAYMENT-REQUIRED', makePaymentRequiredHeader())
       .set('Access-Control-Expose-Headers', 'PAYMENT-REQUIRED,WWW-Authenticate')
       .json({
-        error: 'Payment required', price: '$0.01 USDC',
+        x402Version: 2, accepts: EXTRACT_ACCEPTS_V2, error: 'Payment required', price: '$0.01 USDC',
         endpoint: 'POST /api/extract',
         docs: 'https://www.extractpdf.xyz',
-        protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
+        protocols: [{ x402: {} }, { mpp: { method: 'POST', intent: 'extract', currency: 'USDC' } }],
         networks: ['eip155:8453', 'eip155:5042', 'eip155:137'],
         resource: {
           url: 'https://www.extractpdf.xyz/api/extract',
@@ -265,7 +274,7 @@ app.post('/api/extract', (req, res, next) => {
           inputSchema: BAZAAR_SCHEMA.properties.input,
           outputSchema: BAZAAR_SCHEMA.properties.output,
         },
-        extensions: { bazaar: { schema: BAZAAR_SCHEMA } },
+        extensions: { bazaar: BAZAAR_EXT },
       });
   }
   // Has payment — run Gateway verification
@@ -293,16 +302,16 @@ const X402_MPP_HEADER = MPP_HEADER.replace('/api/extract"', '/api/extract/x402"'
 app.get('/api/extract/x402', (_req, res) => {
   res.status(402)
     .set('WWW-Authenticate', X402_MPP_HEADER)
-    .set('PAYMENT-REQUIRED', makePaymentRequiredHeader(BAZAAR_SCHEMA))
+    .set('PAYMENT-REQUIRED', makePaymentRequiredHeader())
     .set('Access-Control-Expose-Headers', 'PAYMENT-REQUIRED,WWW-Authenticate')
     .json({
-      x402Version: 1, error: 'Payment required', price: '$0.01 USDC',
+      x402Version: 2, accepts: EXTRACT_ACCEPTS_V2, error: 'Payment required', price: '$0.01 USDC',
       endpoint: 'POST /api/extract/x402',
       docs: 'https://www.extractpdf.xyz',
-      protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
+      protocols: [{ x402: {} }, { mpp: { method: 'POST', intent: 'extract', currency: 'USDC' } }],
       networks: ['eip155:8453', 'eip155:5042', 'eip155:137'],
       resource: { url: 'https://www.extractpdf.xyz/api/extract/x402', description: 'PDF and DOCX text extraction', mimeType: 'application/json' },
-      extensions: { bazaar: { schema: BAZAAR_SCHEMA } },
+      extensions: { bazaar: BAZAAR_EXT },
     });
 });
 
@@ -312,16 +321,16 @@ app.post('/api/extract/x402', (req, res, next) => {
   if (!hasPayment) {
     return res.status(402)
       .set('WWW-Authenticate', X402_MPP_HEADER)
-      .set('PAYMENT-REQUIRED', makePaymentRequiredHeader(BAZAAR_SCHEMA))
+      .set('PAYMENT-REQUIRED', makePaymentRequiredHeader())
       .set('Access-Control-Expose-Headers', 'PAYMENT-REQUIRED,WWW-Authenticate')
       .json({
-        x402Version: 1, error: 'Payment required', price: '$0.01 USDC',
+        x402Version: 2, accepts: EXTRACT_ACCEPTS_V2, error: 'Payment required', price: '$0.01 USDC',
         endpoint: 'POST /api/extract/x402',
         docs: 'https://www.extractpdf.xyz',
-        protocols: [{ x402: {} }, { mpp: { method: '', intent: '', currency: '' } }],
+        protocols: [{ x402: {} }, { mpp: { method: 'POST', intent: 'extract', currency: 'USDC' } }],
         networks: ['eip155:8453', 'eip155:5042', 'eip155:137'],
         resource: { url: 'https://www.extractpdf.xyz/api/extract/x402', description: 'PDF and DOCX text extraction', mimeType: 'application/json' },
-        extensions: { bazaar: { schema: BAZAAR_SCHEMA } },
+        extensions: { bazaar: BAZAAR_EXT },
       });
   }
   addMppHeader(req, res, () => gatewayMiddleware(req, res, next));
@@ -344,7 +353,7 @@ app.post('/api/extract/x402', (req, res, next) => {
 // ---------------------------------------------------------------------------
 app.get('/api/extract-web', (_req, res) => {
   res.status(402).set('WWW-Authenticate', MPP_HEADER).json({
-    error: 'Payment required', price: '$0.01 USDC',
+    x402Version: 2, accepts: EXTRACT_ACCEPTS_V2, error: 'Payment required', price: '$0.01 USDC',
     docs: 'https://www.extractpdf.xyz',
   });
 });
@@ -359,7 +368,7 @@ app.post('/api/extract-web', async (req, res) => {
   // Read payment from PAYMENT-SIGNATURE or X-PAYMENT header (x402 v2 base64 payload)
   const paymentHeader = req.headers['payment-signature'] || req.headers['x-payment'];
   if (!paymentHeader)
-    return res.status(402).json({ error: 'Payment required', price: '$0.01 USDC', network: 'eip155:8453' });
+    return res.status(402).json({ x402Version: 2, accepts: EXTRACT_ACCEPTS_V2, error: 'Payment required', price: '$0.01 USDC', network: 'eip155:8453' });
 
   let paymentPayload;
   try {
@@ -377,7 +386,7 @@ app.post('/api/extract-web', async (req, res) => {
     const network = paymentPayload?.accepted?.network || 'eip155:8453';
     const chainCfg = CHAIN_CONFIGS[network] || CHAIN_CONFIGS['eip155:8453'];
     const domain = {
-      name: 'USD Coin',
+      name: chainCfg.usdcName,
       version: chainCfg.usdcVersion,
       chainId: chainCfg.id,
       verifyingContract: chainCfg.usdc,

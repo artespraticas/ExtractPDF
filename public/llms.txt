@@ -1,31 +1,34 @@
 # ExtractPDF
 
-> Pay-per-use PDF and document text extraction for AI agents.
-> $0.005 USDC per extraction. No API key. No account. No subscription.
-> Accepts payment on Base, Arc, and Polygon via x402.
+> Pay-per-use PDF and DOCX text extraction for AI agents.
+> $0.01 USDC per extraction. No API key. No account. No subscription.
+> Accepts payment on Base, Arc, and Polygon via x402 v2 and MPP.
 
 ## What it does
 
-POST a public URL of any PDF or DOCX document and receive:
+POST a public URL of a PDF or DOCX document and receive:
 - Clean extracted plain text (up to 50,000 characters)
-- Page count, title, author metadata
+- Page count and document metadata (PDF)
 - Format detection (pdf / docx / text)
 
 ## Endpoint
 
-POST https://extractpdf.xyz/api/extract
+POST https://www.extractpdf.xyz/api/extract
 Content-Type: application/json
-X-PAYMENT: <x402 payment header>
 
 Body: { "url": "https://example.com/document.pdf" }
 
 ## Payment
 
-Price: $0.005 USDC per call
+Price: $0.01 USDC per call (10000 atomic units, 6 decimals)
 Networks: Base (eip155:8453), Arc (eip155:5042), Polygon (eip155:137)
-Protocol: x402 v1 — send X-PAYMENT header with signed USDC authorization
+Protocol: x402 v2 (scheme "exact", EIP-3009) and MPP
 
-Without a payment header, the endpoint returns HTTP 402 with the full payment requirements.
+1. Send the POST without payment. The response is HTTP 402 with a base64 PAYMENT-REQUIRED header
+   (x402 v2) listing one option per network. Each option carries extra.name and extra.version
+   (the USDC EIP-712 domain), so standard x402 clients can sign without a token table.
+2. Sign a USDC authorization for one option and retry with the PAYMENT-SIGNATURE header.
+3. Receive the extracted JSON.
 
 ## Response example
 
@@ -34,20 +37,18 @@ Without a payment header, the endpoint returns HTTP 402 with the full payment re
   "text": "Executive Summary\n\nThis report covers...",
   "pages": 12,
   "chars": 8432,
-  "title": "Annual Report 2024",
-  "author": "Jane Smith",
   "format": "pdf",
-  "extracted_at": "2026-10-08T14:00:00.000Z"
+  "extracted_at": "2026-11-03T12:00:00.000Z"
 }
 
 ## Supported formats
 
-- PDF (.pdf) — full text and metadata extraction
-- DOCX (.docx) — full text extraction
-- Plain text — returned as-is
+- PDF (.pdf): full text and metadata extraction
+- DOCX (.docx): full text extraction
+- Plain text: returned as-is
 
 ## Links
 
-- Homepage: https://extractpdf.xyz
-- OpenAPI spec: https://extractpdf.xyz/openapi.json
-- Health check: GET https://extractpdf.xyz/api/extract
+- Homepage: https://www.extractpdf.xyz
+- OpenAPI spec: https://www.extractpdf.xyz/openapi.json
+- Payment probe: GET https://www.extractpdf.xyz/api/extract (returns 402)
