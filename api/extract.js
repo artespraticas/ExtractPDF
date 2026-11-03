@@ -41,7 +41,7 @@ const CHAIN_CONFIGS = {
     id: 5042, name: 'Arc',
     usdc: '0x3600000000000000000000000000000000000000', // arc-studio-allow-onchain-literal
     usdcName: 'USDC', usdcVersion: '2',
-    rpc: 'https://rpc.arc.io', // arc-studio-allow-onchain-literal
+    rpc: 'https://rpc.mainnet.arc.io', // arc-studio-allow-onchain-literal
     nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 6 },
   },
 };
