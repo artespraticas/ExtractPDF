@@ -58,7 +58,7 @@
       "get": {
         "operationId": "healthCheck",
         "summary": "Service info \u2014 returns 402 with payment instructions for agents",
-        "description": "Returns 402 with x402/MPP payment instructions. Agents use this to discover pricing, chains, and how to pay. POST /api/extract with a valid X-PAYMENT header to extract text.",
+        "description": "Returns 402 with x402/MPP payment instructions. Agents use this to discover pricing, chains, and how to pay. POST /api/extract with a valid PAYMENT-SIGNATURE header (x402 v2) to extract text.",
         "security": [
           {
             "mpp": []

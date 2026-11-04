@@ -172,10 +172,10 @@ const EXTRACT_ACCEPTS_V2 = [
   { scheme: 'exact', network: 'eip155:137',  amount: '10000', asset: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', payTo: WALLET_ADDRESS, maxTimeoutSeconds: 300, extra: { name: 'USD Coin', version: '2' } }, // arc-studio-allow-onchain-literal
 ];
 
-function makePaymentRequiredHeader() {
+function makePaymentRequiredHeader(resourceUrl = EXTRACT_RESOURCE.url) {
   const payload = {
     x402Version: 2,
-    resource: EXTRACT_RESOURCE,
+    resource: { ...EXTRACT_RESOURCE, url: resourceUrl },
     accepts: EXTRACT_ACCEPTS_V2,
     extensions: { bazaar: BAZAAR_EXT },
   };
@@ -297,12 +297,13 @@ app.post('/api/extract', (req, res, next) => {
 // ---------------------------------------------------------------------------
 // /api/extract/x402 — dedicated MPPScan discovery alias (GET + POST mirror)
 // ---------------------------------------------------------------------------
+const X402_RESOURCE_URL = 'https://www.extractpdf.xyz/api/extract/x402';
 const X402_MPP_HEADER = MPP_HEADER.replace('/api/extract"', '/api/extract/x402"');
 
 app.get('/api/extract/x402', (_req, res) => {
   res.status(402)
     .set('WWW-Authenticate', X402_MPP_HEADER)
-    .set('PAYMENT-REQUIRED', makePaymentRequiredHeader())
+    .set('PAYMENT-REQUIRED', makePaymentRequiredHeader(X402_RESOURCE_URL))
     .set('Access-Control-Expose-Headers', 'PAYMENT-REQUIRED,WWW-Authenticate')
     .json({
       x402Version: 2, accepts: EXTRACT_ACCEPTS_V2, error: 'Payment required', price: '$0.01 USDC',
@@ -321,7 +322,7 @@ app.post('/api/extract/x402', (req, res, next) => {
   if (!hasPayment) {
     return res.status(402)
       .set('WWW-Authenticate', X402_MPP_HEADER)
-      .set('PAYMENT-REQUIRED', makePaymentRequiredHeader())
+      .set('PAYMENT-REQUIRED', makePaymentRequiredHeader(X402_RESOURCE_URL))
       .set('Access-Control-Expose-Headers', 'PAYMENT-REQUIRED,WWW-Authenticate')
       .json({
         x402Version: 2, accepts: EXTRACT_ACCEPTS_V2, error: 'Payment required', price: '$0.01 USDC',
