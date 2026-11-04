@@ -177,7 +177,7 @@ const EXTRACT_ACCEPTS_PLAIN = [
 // Mirrors what gateway.require() advertises for these chains.
 const GATEWAY_WALLET = '0x77777777dcc4d5a8b6e418fd04d8997ef11000ee'; // arc-studio-allow-onchain-literal
 const GATEWAY_EXTRA = { name: 'GatewayWalletBatched', version: '1', verifyingContract: GATEWAY_WALLET };
-const EXTRACT_ACCEPTS_V2 = EXTRACT_ACCEPTS_PLAIN.map(a => ({ ...a, maxTimeoutSeconds: 604900, extra: GATEWAY_EXTRA }));
+const EXTRACT_ACCEPTS_V2 = EXTRACT_ACCEPTS_PLAIN.map(a => ({ ...a, asset: a.asset.toLowerCase(), maxTimeoutSeconds: 604900, extra: GATEWAY_EXTRA }));
 
 function makePaymentRequiredHeader(resourceUrl = EXTRACT_RESOURCE.url) {
   const payload = {
