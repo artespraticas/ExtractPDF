@@ -166,11 +166,18 @@ const MPP_HEADER = [
 
 // v2 PAYMENT-REQUIRED payload (base64) — required by Circle CLI + agentcash validator
 const EXTRACT_RESOURCE = { url: 'https://www.extractpdf.xyz/api/extract', description: 'PDF and DOCX text extraction', mimeType: 'application/json' };
-const EXTRACT_ACCEPTS_V2 = [
+// Plain USDC EIP-3009 options (browser demo at /api/extract-web only)
+const EXTRACT_ACCEPTS_PLAIN = [
   { scheme: 'exact', network: 'eip155:8453', amount: '10000', asset: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', payTo: WALLET_ADDRESS, maxTimeoutSeconds: 300, extra: { name: 'USD Coin', version: '2' } }, // arc-studio-allow-onchain-literal
   { scheme: 'exact', network: 'eip155:5042', amount: '10000', asset: '0x3600000000000000000000000000000000000000', payTo: WALLET_ADDRESS, maxTimeoutSeconds: 300, extra: { name: 'USDC', version: '2' } }, // arc-studio-allow-onchain-literal
   { scheme: 'exact', network: 'eip155:137',  amount: '10000', asset: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', payTo: WALLET_ADDRESS, maxTimeoutSeconds: 300, extra: { name: 'USD Coin', version: '2' } }, // arc-studio-allow-onchain-literal
 ];
+// Options the Circle Gateway verifier actually accepts: the Gateway EIP-712 domain
+// (GatewayWalletBatched, verifyingContract = Gateway Wallet) and a ~7 day validity window.
+// Mirrors what gateway.require() advertises for these chains.
+const GATEWAY_WALLET = '0x77777777dcc4d5a8b6e418fd04d8997ef11000ee'; // arc-studio-allow-onchain-literal
+const GATEWAY_EXTRA = { name: 'GatewayWalletBatched', version: '1', verifyingContract: GATEWAY_WALLET };
+const EXTRACT_ACCEPTS_V2 = EXTRACT_ACCEPTS_PLAIN.map(a => ({ ...a, maxTimeoutSeconds: 604900, extra: GATEWAY_EXTRA }));
 
 function makePaymentRequiredHeader(resourceUrl = EXTRACT_RESOURCE.url) {
   const payload = {
@@ -354,7 +361,7 @@ app.post('/api/extract/x402', (req, res, next) => {
 // ---------------------------------------------------------------------------
 app.get('/api/extract-web', (_req, res) => {
   res.status(402).set('WWW-Authenticate', MPP_HEADER).json({
-    x402Version: 2, accepts: EXTRACT_ACCEPTS_V2, error: 'Payment required', price: '$0.01 USDC',
+    x402Version: 2, accepts: EXTRACT_ACCEPTS_PLAIN, error: 'Payment required', price: '$0.01 USDC',
     docs: 'https://www.extractpdf.xyz',
   });
 });
@@ -369,7 +376,7 @@ app.post('/api/extract-web', async (req, res) => {
   // Read payment from PAYMENT-SIGNATURE or X-PAYMENT header (x402 v2 base64 payload)
   const paymentHeader = req.headers['payment-signature'] || req.headers['x-payment'];
   if (!paymentHeader)
-    return res.status(402).json({ x402Version: 2, accepts: EXTRACT_ACCEPTS_V2, error: 'Payment required', price: '$0.01 USDC', network: 'eip155:8453' });
+    return res.status(402).json({ x402Version: 2, accepts: EXTRACT_ACCEPTS_PLAIN, error: 'Payment required', price: '$0.01 USDC', network: 'eip155:8453' });
 
   let paymentPayload;
   try {
