@@ -5,15 +5,16 @@ import { createGatewayMiddleware } from '@circle-fin/x402-batching/server';
 import pdfParse from 'pdf-parse/lib/pdf-parse.js';
 import mammoth from 'mammoth';
 import { Buffer } from 'node:buffer';
-import { createPublicClient, createWalletClient, http, recoverTypedDataAddress } from 'viem';
+import { createPublicClient, createWalletClient, http, recoverTypedDataAddress, getAddress } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const WALLET_ADDRESS = process.env.WALLET_ADDRESS;
-if (!WALLET_ADDRESS) throw new Error('WALLET_ADDRESS env var required');
+if (!process.env.WALLET_ADDRESS) throw new Error('WALLET_ADDRESS env var required');
+// Normalize to the canonical EIP-55 checksum so strict clients (viem, ethers) accept payTo
+const WALLET_ADDRESS = getAddress(process.env.WALLET_ADDRESS.toLowerCase());
 
 // Circle Gateway middleware — handles 402 negotiation, verification, and settlement
 const gateway = createGatewayMiddleware({
