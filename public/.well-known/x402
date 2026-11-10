@@ -1,11 +1,8 @@
 {
-  "endpoints": [
-    {
-      "path": "/api/extract",
-      "method": "POST",
-      "price": "0.01",
-      "currency": "USD",
-      "networks": ["eip155:8453", "eip155:5042", "eip155:137"]
-    }
-  ]
+  "version": 1,
+  "resources": [
+    "https://www.extractpdf.xyz/api/extract"
+  ],
+  "name": "ExtractPDF",
+  "description": "Pay-per-use PDF and DOCX text extraction for AI agents. $0.01 USDC via x402 on Base, Arc, or Polygon."
 }
